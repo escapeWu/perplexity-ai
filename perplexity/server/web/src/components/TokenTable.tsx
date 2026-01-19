@@ -98,7 +98,7 @@ export function TokenTable({
             }}
             className={`px-4 py-2 font-bold border transition-all font-mono text-sm uppercase shadow-hard-acid hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px] ${
               isAuthenticated
-                ? 'bg-acid text-black border-acid hover:bg-transparent hover:text-acid'
+                ? 'bg-neon-pink text-black border-neon-pink hover:bg-white'
                 : 'bg-gray-700 text-gray-500 border-gray-600 cursor-not-allowed'
             }`}
           >

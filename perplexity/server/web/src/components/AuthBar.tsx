@@ -41,7 +41,7 @@ export function AuthBar({ adminToken, isAuthenticated, onLogin, onLogout }: Auth
             />
             <button
               onClick={handleAuth}
-              className="px-4 py-2 bg-neon-pink text-black font-bold font-mono text-sm uppercase hover:bg-white transition-colors shadow-hard-pink hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px]"
+              className="px-4 py-2 bg-neon-pink text-black font-bold font-mono text-sm uppercase hover:bg-white transition-colors shadow-hard-acid hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px]"
             >
               AUTH
             </button>

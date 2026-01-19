@@ -20,7 +20,7 @@ export default {
         hard: '4px 4px 0px 0px #333333',
         'hard-hover': '2px 2px 0px 0px #555555',
         'hard-acid': '4px 4px 0px 0px #ccff00',
-        'hard-pink': '4px 4px 0px 0px #ff00ff',
+        'hard-pink': '4px 4px 0px 0px #990099',
       },
     },
   },

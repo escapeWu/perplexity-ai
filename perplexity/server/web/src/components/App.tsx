@@ -106,6 +106,12 @@ export function App() {
               </p>
             </div>
             <div className="font-mono text-xs md:text-sm text-right">
+              <a
+                href="/playground/"
+                className="inline-block mb-2 text-neon-pink hover:text-acid border-2 border-neon-pink hover:border-acid px-3 py-1 transition-colors uppercase"
+              >
+                API Playground &rarr;
+              </a>
               <div className="text-acid">
                 {lastSync ? `LAST_SYNC: ${lastSync}` : 'SYNCING...'}
               </div>

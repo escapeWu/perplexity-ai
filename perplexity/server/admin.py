@@ -152,6 +152,57 @@ async def admin_static(request: Request):
     return Response("Not Found", status_code=404)
 
 
+# ==================== Playground 页面路由 ====================
+
+@mcp.custom_route("/playground", methods=["GET"])
+async def playground_page(request: Request):
+    """Playground 页面 - 重定向到 /playground/"""
+    from starlette.responses import RedirectResponse
+    return RedirectResponse(url="/playground/", status_code=302)
+
+
+@mcp.custom_route("/playground/", methods=["GET"])
+async def playground_page_index(request: Request):
+    """Playground 页面入口"""
+    from starlette.responses import FileResponse
+    import pathlib
+    dist_path = pathlib.Path(__file__).parent / "web" / "dist" / "index.html"
+    return FileResponse(dist_path, media_type="text/html")
+
+
+@mcp.custom_route("/playground/{path:path}", methods=["GET"])
+async def playground_static(request: Request):
+    """服务 Playground 静态资源文件"""
+    from starlette.responses import FileResponse, Response
+    import pathlib
+    import mimetypes
+
+    path = request.path_params.get("path", "")
+    dist_dir = pathlib.Path(__file__).parent / "web" / "dist"
+    file_path = dist_dir / path
+
+    # 安全检查：确保路径在 dist 目录内
+    try:
+        file_path = file_path.resolve()
+        dist_dir = dist_dir.resolve()
+        if not str(file_path).startswith(str(dist_dir)):
+            return Response("Forbidden", status_code=403)
+    except Exception:
+        return Response("Bad Request", status_code=400)
+
+    # 如果文件存在，返回文件
+    if file_path.is_file():
+        mime_type, _ = mimetypes.guess_type(str(file_path))
+        return FileResponse(file_path, media_type=mime_type or "application/octet-stream")
+
+    # 对于 SPA 路由，返回 index.html
+    index_path = dist_dir / "index.html"
+    if index_path.is_file():
+        return FileResponse(index_path, media_type="text/html")
+
+    return Response("Not Found", status_code=404)
+
+
 # ==================== Heartbeat API 端点 ====================
 
 @mcp.custom_route("/heartbeat/config", methods=["GET"])

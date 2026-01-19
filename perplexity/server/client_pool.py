@@ -642,19 +642,62 @@ class ClientPool:
 
     async def test_all_clients(self) -> Dict[str, Any]:
         """
-        Test all clients in the pool.
+        Test all clients in the pool with concurrent execution.
+
+        Uses asyncio.Semaphore to limit concurrency to 5 simultaneous tests
+        to prevent rate limiting while improving overall test performance.
 
         Returns:
             Dict with status and results for each client
         """
-        results = {}
+        results: Dict[str, Any] = {}
         client_ids = list(self.clients.keys())
 
-        for client_id in client_ids:
-            result = await self.test_client(client_id)
+        if not client_ids:
+            logger.info("No clients to test")
+            return {"status": "ok", "results": results}
+
+        logger.info(f"Starting concurrent test for {len(client_ids)} clients (max concurrency: 5)")
+
+        # Limit concurrent tests to 5 to prevent rate limiting
+        semaphore = asyncio.Semaphore(5)
+        completed_count = 0
+
+        async def test_with_limit(client_id: str) -> Tuple[str, Dict[str, Any]]:
+            nonlocal completed_count
+            logger.info(f"Testing client '{client_id}'...")
+            async with semaphore:
+                result = await self.test_client(client_id)
+                completed_count += 1
+                status = result.get("status", "unknown")
+                state = result.get("state", "unknown")
+                logger.info(
+                    f"Client '{client_id}' test completed ({completed_count}/{len(client_ids)}): "
+                    f"status={status}, state={state}"
+                )
+                # Small delay after each test to prevent burst requests
+                await asyncio.sleep(0.5)
+                return client_id, result
+
+        # Run all tests concurrently (semaphore limits to 5 at a time)
+        tasks = [test_with_limit(cid) for cid in client_ids]
+        completed = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for item in completed:
+            if isinstance(item, Exception):
+                # Log unexpected errors but continue processing
+                logger.error(f"Unexpected error during concurrent test: {item}")
+                continue
+            client_id, result = item
             results[client_id] = result
-            # Add a small delay between tests to avoid rate limiting
-            await asyncio.sleep(2)
+
+        # Summary log
+        success_count = sum(1 for r in results.values() if r.get("status") == "ok")
+        fail_count = len(results) - success_count
+        logger.info(
+            f"Concurrent test completed: {len(results)} clients tested, "
+            f"{success_count} succeeded, {fail_count} failed"
+        )
 
         return {"status": "ok", "results": results}
 
