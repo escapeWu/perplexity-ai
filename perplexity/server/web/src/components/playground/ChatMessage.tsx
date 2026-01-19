@@ -104,14 +104,14 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
       <div className={`relative max-w-[85%] group ${!isUser ? 'w-full' : ''}`}>
         {/* 装饰性背景阴影 (仅 User) */}
         {isUser && (
-          <div className="absolute inset-0 transform translate-x-1.5 translate-y-1.5 -skew-x-6 border-2 bg-red-600 border-red-600" />
+          <div className="absolute inset-0 transform translate-x-1.5 translate-y-1.5 border-2 bg-red-600 border-red-600" />
         )}
 
         {/* 气泡主体 */}
         <div
           className={`relative px-6 py-4 border-2 transition-transform duration-200 ${
             isUser
-              ? 'transform -skew-x-6 hover:-translate-y-0.5 bg-black text-white border-white'
+              ? 'hover:-translate-y-0.5 bg-black text-white border-white'
               : isError
                 ? 'bg-red-900/10 text-red-500 border-red-900'
                 : 'bg-[#1a1a1a] text-gray-200 border-gray-700'
@@ -120,8 +120,8 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
           {/* Copy Button (Assistant Only) */}
           {!isUser && !isError && <CopyButton content={message.content} />}
 
-          {/* 内容容器 (User 需要反向 skew, Assistant 不需要) */}
-          <div className={isUser ? 'transform skew-x-6' : ''}>
+          {/* 内容容器 */}
+          <div>
             <div className="font-sans break-words text-sm font-medium tracking-wide">
               {isUser ? (
                 <span className="whitespace-pre-wrap">{message.content}</span>
