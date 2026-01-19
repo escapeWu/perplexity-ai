@@ -102,14 +102,54 @@ async def pool_api(request: Request) -> JSONResponse:
         return JSONResponse({"status": "error", "message": f"Unknown action: {action}"})
 
 
-# 管理页面路由
+# 管理页面路由 - 服务 Vite 构建的静态文件
 @mcp.custom_route("/admin", methods=["GET"])
 async def admin_page(request: Request):
-    """管理页面"""
+    """管理页面 - 重定向到 /admin/"""
+    from starlette.responses import RedirectResponse
+    return RedirectResponse(url="/admin/", status_code=302)
+
+
+@mcp.custom_route("/admin/", methods=["GET"])
+async def admin_page_index(request: Request):
+    """管理页面入口"""
     from starlette.responses import FileResponse
     import pathlib
-    static_path = pathlib.Path(__file__).parent / "web" / "admin.html"
-    return FileResponse(static_path, media_type="text/html")
+    dist_path = pathlib.Path(__file__).parent / "web" / "dist" / "index.html"
+    return FileResponse(dist_path, media_type="text/html")
+
+
+@mcp.custom_route("/admin/{path:path}", methods=["GET"])
+async def admin_static(request: Request):
+    """服务静态资源文件"""
+    from starlette.responses import FileResponse, Response
+    import pathlib
+    import mimetypes
+
+    path = request.path_params.get("path", "")
+    dist_dir = pathlib.Path(__file__).parent / "web" / "dist"
+    file_path = dist_dir / path
+
+    # 安全检查：确保路径在 dist 目录内
+    try:
+        file_path = file_path.resolve()
+        dist_dir = dist_dir.resolve()
+        if not str(file_path).startswith(str(dist_dir)):
+            return Response("Forbidden", status_code=403)
+    except Exception:
+        return Response("Bad Request", status_code=400)
+
+    # 如果文件存在，返回文件
+    if file_path.is_file():
+        mime_type, _ = mimetypes.guess_type(str(file_path))
+        return FileResponse(file_path, media_type=mime_type or "application/octet-stream")
+
+    # 对于 SPA 路由，返回 index.html
+    index_path = dist_dir / "index.html"
+    if index_path.is_file():
+        return FileResponse(index_path, media_type="text/html")
+
+    return Response("Not Found", status_code=404)
 
 
 # ==================== Heartbeat API 端点 ====================
