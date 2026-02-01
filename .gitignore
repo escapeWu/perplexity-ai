@@ -9,3 +9,4 @@ mcp_test_results.txt
 .env
 *.log
 token_pool_config.json
+.ace-tool/
