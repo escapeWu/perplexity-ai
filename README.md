@@ -1,5 +1,4 @@
-## 源项目地址：
-https://github.com/helallao/perplexity-ai
+
 
 ## 展示
 ADMIN
@@ -285,3 +284,7 @@ perplexity/
 - `/pp:query 你的问题` - 快速搜索
 - `/pp:reasoning 你的问题` - 推理模式，多步思考分析
 - `/pp:research 你的问题` - 深度研究，最全面彻底
+
+
+## 上游项目：
+https://github.com/helallao/perplexity-ai
