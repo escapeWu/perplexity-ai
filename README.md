@@ -12,6 +12,7 @@ MCP
 
 
 ## 更新记录
++ 2026-02-01：新增自动回退机制，当 Token 失效时自动降级到匿名模式；新增实时日志查看
 + 2026-01-19：增加SKILL，`.claude/skills/perplexity-search`
 + 2026-01-16: 重构项目结构，增加oai 端点适配
 + 2026-01-13: 新增心跳检测功能，支持定时检测token健康状态并通过Telegram通知
@@ -45,6 +46,9 @@ cp token_pool_config-example.json token_pool_config.json
     "tg_bot_token": "your-telegram-bot-token",
     "tg_chat_id": "your-telegram-chat-id"
   },
+  "fallback": {
+    "fallback_to_auto": true
+  },
   "tokens": [
     {
       "id": "account1@example.com",
@@ -75,6 +79,16 @@ cp token_pool_config-example.json token_pool_config.json
 | `interval` | 检测间隔时间（小时） |
 | `tg_bot_token` | Telegram Bot Token（用于发送通知） |
 | `tg_chat_id` | Telegram Chat ID（接收通知的聊天ID） |
+
+### 自动回退配置（可选）
+
+当所有配置的 Token 都不可用（如额度耗尽或失效）时，系统可以自动回退到匿名 Auto 模式继续服务：
+
+| 配置项 | 说明 |
+|--------|------|
+| `fallback_to_auto` | 当所有 token 失败时，是否自动降级到匿名模式 (默认 `true`) |
+
+> 如果不需要此功能，可以在配置文件中将 `fallback_to_auto` 设为 `false`，或者通过 Web UI 进行动态开关。
 
 > 如果不需要心跳检测功能，可以省略 `heart_beat` 配置或将 `enable` 设为 `false`
 
