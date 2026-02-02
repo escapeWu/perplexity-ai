@@ -19,20 +19,6 @@ services:
       - SOCKS_PROXY=${SOCKS_PROXY:-}
     volumes:
       # 挂载 token 池配置文件（必需）
-      - ./token_pool_config.json:/app/token_pool_config.json:ro
+      - ./token_pool_config.json:/app/token_pool_config.json
     restart: unless-stopped
-    # 资源限制 (可选)
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 128M
-
-# 网络配置 (可选)
-networks:
-  default:
-    name: perplexity-network
 
