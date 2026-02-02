@@ -2,7 +2,7 @@ __pycache__
 *.pyc
 *.egg-info
 .cursor
-logs
+/logs
 openspec
 .mcp.json
 mcp_test_results.txt

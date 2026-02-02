@@ -106,7 +106,7 @@ export function App() {
                 </span>
               </h1>
               <p className="font-mono text-gray-400 mt-2 bg-gray-900 inline-block px-2">
-                /// MANAGER_V2.0_REACT
+                /// MANAGER_V2.1_REACT
               </p>
             </div>
             <div className="font-mono text-xs md:text-sm text-right">
