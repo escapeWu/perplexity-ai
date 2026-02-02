@@ -1,14 +1,24 @@
 {
+  "heart_beat": {
+    "enable": true,
+    "question": "今天是几号？",
+    "interval": 24,
+    "tg_bot_token": "your-telegram-bot-token",
+    "tg_chat_id": "your-telegram-chat-id"
+  },
+  "fallback": {
+    "fallback_to_auto": true
+  },
   "tokens": [
     {
       "id": "account1@example.com",
-      "csrf_token": "your-csrf-token-from-cookie",
-      "session_token": "your-session-token-from-cookie"
+      "csrf_token": "your-csrf-token-1",
+      "session_token": "your-session-token-1"
     },
     {
       "id": "account2@example.com",
-      "csrf_token": "your-csrf-token-from-cookie",
-      "session_token": "your-session-token-from-cookie"
+      "csrf_token": "your-csrf-token-2",
+      "session_token": "your-session-token-2"
     }
   ]
 }
