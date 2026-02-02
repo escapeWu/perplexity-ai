@@ -29,6 +29,7 @@ dependencies = [
     "websocket-client>=1.9.0",
     "fastmcp>=0.1.0",
     "python-dotenv>=1.0.0",
+    "aiohttp>=3.9.0",
 ]
 
 [project.optional-dependencies]
