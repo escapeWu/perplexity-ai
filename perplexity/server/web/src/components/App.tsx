@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react'
 import { useAuth } from 'hooks/useAuth'
 import { useToast } from 'hooks/useToast'
 import { usePool } from 'hooks/usePool'
-import { apiCall } from 'lib/api'
+import { apiCall, importTokenConfig, TokenConfig } from 'lib/api'
 import { AuthBar } from './AuthBar'
 import { StatsGrid } from './StatsGrid'
 import { HeartbeatPanel } from './HeartbeatPanel'
@@ -66,6 +66,24 @@ export function App() {
         refreshData()
       } else {
         addToast(resp.message || 'ERROR', 'error')
+      }
+    },
+    [adminToken, addToast, refreshData]
+  )
+
+  const handleImportConfig = useCallback(
+    async (tokens: TokenConfig[]) => {
+      try {
+        const resp = await importTokenConfig(tokens, adminToken)
+        if (resp.status === 'ok') {
+          addToast(`IMPORTED_${tokens.length}_TOKENS`, 'success')
+          setIsAddModalOpen(false)
+          refreshData()
+        } else {
+          addToast(resp.message || 'IMPORT_FAILED', 'error')
+        }
+      } catch (err) {
+        addToast(err instanceof Error ? err.message : 'IMPORT_FAILED', 'error')
       }
     },
     [adminToken, addToast, refreshData]
@@ -200,6 +218,7 @@ export function App() {
           isOpen={isAddModalOpen}
           onClose={() => setIsAddModalOpen(false)}
           onSubmit={handleAddToken}
+          onImportConfig={handleImportConfig}
         />
 
         {/* Confirm Modal */}

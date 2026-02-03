@@ -40,6 +40,84 @@ async def pool_status(request: Request) -> JSONResponse:
     return JSONResponse(pool.get_status())
 
 
+# Token 导出端点 (需要认证)
+@mcp.custom_route("/pool/export", methods=["GET"])
+async def pool_export(request: Request) -> JSONResponse:
+    """导出所有 token 配置"""
+    from perplexity.config import ADMIN_TOKEN
+
+    if not ADMIN_TOKEN:
+        return JSONResponse({
+            "status": "error",
+            "message": "Admin token not configured. Set PPLX_ADMIN_TOKEN environment variable."
+        }, status_code=403)
+
+    provided_token = request.headers.get("X-Admin-Token")
+    if not provided_token or provided_token != ADMIN_TOKEN:
+        return JSONResponse({
+            "status": "error",
+            "message": "Invalid or missing admin token."
+        }, status_code=401)
+
+    pool = get_pool()
+    return JSONResponse(pool.export_config())
+
+
+# 单个 Token 导出端点 (需要认证)
+@mcp.custom_route("/pool/export/{client_id:path}", methods=["GET"])
+async def pool_export_single(request: Request) -> JSONResponse:
+    """导出单个 token 配置"""
+    from perplexity.config import ADMIN_TOKEN
+
+    if not ADMIN_TOKEN:
+        return JSONResponse({
+            "status": "error",
+            "message": "Admin token not configured. Set PPLX_ADMIN_TOKEN environment variable."
+        }, status_code=403)
+
+    provided_token = request.headers.get("X-Admin-Token")
+    if not provided_token or provided_token != ADMIN_TOKEN:
+        return JSONResponse({
+            "status": "error",
+            "message": "Invalid or missing admin token."
+        }, status_code=401)
+
+    client_id = request.path_params.get("client_id")
+    pool = get_pool()
+    return JSONResponse(pool.export_single_client(client_id))
+
+
+# Token 导入端点 (需要认证)
+@mcp.custom_route("/pool/import", methods=["POST"])
+async def pool_import(request: Request) -> JSONResponse:
+    """导入 token 配置（支持数组格式）"""
+    from perplexity.config import ADMIN_TOKEN
+
+    if not ADMIN_TOKEN:
+        return JSONResponse({
+            "status": "error",
+            "message": "Admin token not configured. Set PPLX_ADMIN_TOKEN environment variable."
+        }, status_code=403)
+
+    provided_token = request.headers.get("X-Admin-Token")
+    if not provided_token or provided_token != ADMIN_TOKEN:
+        return JSONResponse({
+            "status": "error",
+            "message": "Invalid or missing admin token."
+        }, status_code=401)
+
+    pool = get_pool()
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({
+            "status": "error",
+            "message": "Invalid JSON body"
+        }, status_code=400)
+
+    return JSONResponse(pool.import_config(body))
+
+
 # 号池管理 API 端点 (用于前端管理页面)
 @mcp.custom_route("/pool/{action}", methods=["POST"])
 async def pool_api(request: Request) -> JSONResponse:
@@ -106,6 +184,38 @@ async def pool_api(request: Request) -> JSONResponse:
         if not client_id:
             return JSONResponse({"status": "error", "message": "Missing required parameter: id"})
         return JSONResponse(pool.reset_client(client_id))
+    elif action == "export":
+        # Export requires authentication
+        if not ADMIN_TOKEN:
+            return JSONResponse({
+                "status": "error",
+                "message": "Admin token not configured. Set PPLX_ADMIN_TOKEN environment variable."
+            }, status_code=403)
+
+        provided_token = request.headers.get("X-Admin-Token") or body.get("admin_token")
+        if not provided_token or provided_token != ADMIN_TOKEN:
+            return JSONResponse({
+                "status": "error",
+                "message": "Invalid or missing admin token."
+            }, status_code=401)
+
+        return JSONResponse(pool.export_config())
+    elif action == "import":
+        # Import requires authentication
+        if not ADMIN_TOKEN:
+            return JSONResponse({
+                "status": "error",
+                "message": "Admin token not configured. Set PPLX_ADMIN_TOKEN environment variable."
+            }, status_code=403)
+
+        provided_token = request.headers.get("X-Admin-Token") or body.get("admin_token")
+        if not provided_token or provided_token != ADMIN_TOKEN:
+            return JSONResponse({
+                "status": "error",
+                "message": "Invalid or missing admin token."
+            }, status_code=401)
+
+        return JSONResponse(pool.import_config(body))
     else:
         return JSONResponse({"status": "error", "message": f"Unknown action: {action}"})
 

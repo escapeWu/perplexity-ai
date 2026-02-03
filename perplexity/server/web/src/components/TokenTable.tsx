@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ClientInfo, apiCall, updateFallbackConfig } from 'lib/api'
+import { ClientInfo, apiCall, updateFallbackConfig, downloadSingleTokenConfig } from 'lib/api'
 
 interface TokenTableProps {
   clients: ClientInfo[]
@@ -25,6 +25,7 @@ export function TokenTable({
   onFallbackChange,
 }: TokenTableProps) {
   const [testingIds, setTestingIds] = useState<Set<string>>(new Set())
+  const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set())
   const [updatingFallback, setUpdatingFallback] = useState(false)
 
   const getWeightColor = (weight: number) => {
@@ -97,12 +98,47 @@ export function TokenTable({
       const resp = await updateFallbackConfig({ fallback_to_auto: newValue }, adminToken)
       if (resp.status === 'ok') {
         onFallbackChange(newValue)
-        onToast(newValue ? 'DOWNGRADE_SEARCH_ENABLED' : 'DOWNGRADE_SEARCH_DISABLED', 'success')
+        onToast(
+          newValue
+            ? 'Downgrade mode active. If req fail, Perplexity free model will auto use.'
+            : 'Pro mode active. If req fail, will throw error.',
+          'success'
+        )
       } else {
         onToast(resp.message || 'ERROR', 'error')
       }
     } finally {
       setUpdatingFallback(false)
+    }
+  }
+
+  const handleDownload = async (id: string) => {
+    if (!isAuthenticated) {
+      onToast('AUTH_REQUIRED', 'error')
+      return
+    }
+
+    setDownloadingIds((prev) => new Set(prev).add(id))
+    try {
+      const config = await downloadSingleTokenConfig(id, adminToken)
+      const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `token_${id.replace(/[^a-zA-Z0-9]/g, '_')}.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      onToast('CONFIG_DOWNLOADED', 'success')
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : 'DOWNLOAD_FAILED', 'error')
+    } finally {
+      setDownloadingIds((prev) => {
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
     }
   }
 
@@ -118,12 +154,12 @@ export function TokenTable({
             <button
               onClick={handleToggleFallback}
               disabled={!isAuthenticated || updatingFallback}
-              className={`px-4 py-2 font-bold border-2 transition-all font-mono text-sm uppercase flex items-center gap-2 ${
+              className={`px-4 py-2 font-bold border transition-all font-mono text-sm uppercase flex items-center gap-2 ${
                 !isAuthenticated || updatingFallback
                   ? 'bg-gray-800 text-gray-500 border-gray-700 cursor-not-allowed'
                   : fallbackToAuto
-                    ? 'bg-orange-900/30 text-orange-400 border-orange-500 hover:bg-orange-500 hover:text-black'
-                    : 'bg-green-900/30 text-green-400 border-green-500 hover:bg-green-500 hover:text-black'
+                    ? 'bg-orange-500 text-black border-orange-500 shadow-[4px_4px_0px_0px_rgba(249,115,22,0.5)] hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px] hover:bg-white'
+                    : 'bg-green-500 text-black border-green-500 shadow-[4px_4px_0px_0px_rgba(34,197,94,0.5)] hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px] hover:bg-white'
               }`}
             >
               <svg
@@ -139,7 +175,7 @@ export function TokenTable({
                   d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"
                 />
               </svg>
-              {updatingFallback ? 'UPDATING...' : fallbackToAuto ? 'DOWNGRADE REQ MODE' : 'PRO ONLY MODE'}
+              {updatingFallback ? '...' : fallbackToAuto ? 'DOWNGRADE' : 'PRO'}
             </button>
             <button
               onClick={() => {
@@ -264,6 +300,18 @@ export function TokenTable({
                       <div
                         className={`flex justify-end gap-2 ${isAuthenticated ? '' : 'opacity-50'}`}
                       >
+                        <button
+                          className={`p-1 transition-colors ${
+                            isAuthenticated && !downloadingIds.has(c.id)
+                              ? 'hover:text-neon-blue'
+                              : 'cursor-not-allowed opacity-50'
+                          }`}
+                          onClick={() => handleDownload(c.id)}
+                          title="Download Config"
+                          disabled={!isAuthenticated || downloadingIds.has(c.id)}
+                        >
+                          {downloadingIds.has(c.id) ? '[...]' : '[DL]'}
+                        </button>
                         {c.enabled ? (
                           <button
                             className={`p-1 transition-colors ${isAuthenticated ? 'hover:text-yellow-500' : 'cursor-not-allowed'}`}

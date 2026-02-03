@@ -137,6 +137,45 @@ export async function fetchLogs(
   return resp.json()
 }
 
+// ============ Token Config Export/Import API ============
+
+export interface TokenConfig {
+  id: string
+  csrf_token: string
+  session_token: string
+}
+
+export async function downloadSingleTokenConfig(
+  clientId: string,
+  adminToken: string
+): Promise<TokenConfig[]> {
+  const resp = await fetch(`${API_BASE}/pool/export/${encodeURIComponent(clientId)}`, {
+    headers: {
+      'X-Admin-Token': adminToken,
+    },
+  })
+  if (!resp.ok) {
+    const error = await resp.json().catch(() => ({ message: resp.statusText }))
+    throw new Error(error.message || `Export failed: ${resp.status}`)
+  }
+  return resp.json()
+}
+
+export async function importTokenConfig(
+  tokens: TokenConfig[],
+  adminToken: string
+): Promise<ApiResponse> {
+  const resp = await fetch(`${API_BASE}/pool/import`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Admin-Token': adminToken,
+    },
+    body: JSON.stringify(tokens),
+  })
+  return resp.json()
+}
+
 // ============ OAI Compatible API ============
 
 export interface Source {

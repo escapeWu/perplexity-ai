@@ -53,6 +53,9 @@ class Client:
             # Remove the remark part (after #) if present
             proxy_url = SOCKS_PROXY.split("#")[0] if "#" in SOCKS_PROXY else SOCKS_PROXY
 
+        # Store original cookies for export
+        self._cookies = cookies.copy() if cookies else {}
+
         # Initialize an HTTP session with default headers and optional cookies
         self.session = requests.Session(
             headers=DEFAULT_HEADERS.copy(),

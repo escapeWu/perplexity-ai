@@ -9,6 +9,7 @@ interface ModalProps {
   confirmText?: string
   confirmColor?: string
   borderColor?: string
+  confirmDisabled?: boolean
 }
 
 export function Modal({
@@ -20,6 +21,7 @@ export function Modal({
   confirmText = 'Confirm',
   confirmColor = 'bg-acid',
   borderColor = 'border-acid',
+  confirmDisabled = false,
 }: ModalProps) {
   if (!isOpen) return null
 
@@ -44,7 +46,12 @@ export function Modal({
           </button>
           <button
             onClick={onConfirm}
-            className={`px-6 py-3 ${confirmColor} text-black font-bold font-mono text-sm hover:bg-white transition-colors shadow-hard hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px]`}
+            disabled={confirmDisabled}
+            className={`px-6 py-3 ${confirmColor} text-black font-bold font-mono text-sm transition-colors shadow-hard hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px] ${
+              confirmDisabled
+                ? 'opacity-50 cursor-not-allowed'
+                : 'hover:bg-white'
+            }`}
           >
             {confirmText}
           </button>

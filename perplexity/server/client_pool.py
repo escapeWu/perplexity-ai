@@ -257,10 +257,14 @@ class ClientPool:
             if self._mode in ("single", "anonymous") and len(self.clients) > 1:
                 self._mode = "pool"
 
-            return {
-                "status": "ok",
-                "message": f"Client '{client_id}' added successfully",
-            }
+        # Save to config file (outside lock to avoid blocking)
+        if self._config_path:
+            self._save_config()
+
+        return {
+            "status": "ok",
+            "message": f"Client '{client_id}' added successfully",
+        }
 
     def remove_client(self, client_id: str) -> Dict[str, Any]:
         """
@@ -289,10 +293,14 @@ class ClientPool:
             if self._index >= len(self._rotation_order):
                 self._index = 0
 
-            return {
-                "status": "ok",
-                "message": f"Client '{client_id}' removed successfully",
-            }
+        # Save to config file (outside lock to avoid blocking)
+        if self._config_path:
+            self._save_config()
+
+        return {
+            "status": "ok",
+            "message": f"Client '{client_id}' removed successfully",
+        }
 
     def list_clients(self) -> Dict[str, Any]:
         """
@@ -877,3 +885,144 @@ class ClientPool:
             logger.info("Heartbeat task stopped")
             return True
         return False
+
+    # ==================== Export/Import Methods ====================
+
+    def export_config(self) -> Dict[str, Any]:
+        """
+        Export the current token pool configuration.
+
+        Returns:
+            Dict containing tokens, heartbeat, and fallback configuration
+        """
+        with self._lock:
+            tokens = []
+            for client_id, wrapper in self.clients.items():
+                # Get the cookies from the client
+                client = wrapper.client
+                cookies = client._cookies if hasattr(client, '_cookies') else {}
+
+                tokens.append({
+                    "id": client_id,
+                    "csrf_token": cookies.get("next-auth.csrf-token", ""),
+                    "session_token": cookies.get("__Secure-next-auth.session-token", ""),
+                })
+
+            return {
+                "heart_beat": self._heartbeat_config.copy(),
+                "fallback": self._fallback_config.copy(),
+                "tokens": tokens,
+            }
+
+    def export_single_client(self, client_id: str) -> List[Dict[str, Any]]:
+        """
+        Export a single client's token configuration as array.
+
+        Args:
+            client_id: The ID of the client to export
+
+        Returns:
+            List containing the single token configuration
+        """
+        with self._lock:
+            wrapper = self.clients.get(client_id)
+            if not wrapper:
+                return []
+
+            client = wrapper.client
+            cookies = client._cookies if hasattr(client, '_cookies') else {}
+
+            return [{
+                "id": client_id,
+                "csrf_token": cookies.get("next-auth.csrf-token", ""),
+                "session_token": cookies.get("__Secure-next-auth.session-token", ""),
+            }]
+
+    def import_config(self, config: Any) -> Dict[str, Any]:
+        """
+        Import token pool configuration, adding new tokens.
+
+        Args:
+            config: List of tokens or Dict containing tokens array
+
+        Returns:
+            Dict with status and message
+        """
+        # Support both array format and object format
+        if isinstance(config, list):
+            tokens = config
+        else:
+            tokens = config.get("tokens", [])
+
+        if not tokens:
+            return {"status": "error", "message": "No tokens found in config"}
+
+        added = []
+        skipped = []
+        errors = []
+
+        for token_entry in tokens:
+            client_id = token_entry.get("id")
+            csrf_token = token_entry.get("csrf_token")
+            session_token = token_entry.get("session_token")
+
+            if not all([client_id, csrf_token, session_token]):
+                errors.append(f"Invalid token entry: missing required fields")
+                continue
+
+            result = self.add_client(client_id, csrf_token, session_token)
+            if result.get("status") == "ok":
+                added.append(client_id)
+            else:
+                if "already exists" in result.get("message", ""):
+                    skipped.append(client_id)
+                else:
+                    errors.append(f"{client_id}: {result.get('message')}")
+
+        # Save to config file if available
+        if self._config_path and added:
+            self._save_config()
+
+        message_parts = []
+        if added:
+            message_parts.append(f"Added: {len(added)} token(s)")
+        if skipped:
+            message_parts.append(f"Skipped: {len(skipped)} (already exist)")
+        if errors:
+            message_parts.append(f"Errors: {len(errors)}")
+
+        return {
+            "status": "ok" if added or skipped else "error",
+            "message": "; ".join(message_parts) if message_parts else "No tokens processed",
+            "added": added,
+            "skipped": skipped,
+            "errors": errors,
+        }
+
+    def _save_config(self) -> None:
+        """Save the current configuration to the config file."""
+        if not self._config_path:
+            return
+
+        try:
+            config = {
+                "heart_beat": self._heartbeat_config.copy(),
+                "fallback": self._fallback_config.copy(),
+                "tokens": [],
+            }
+
+            for client_id, wrapper in self.clients.items():
+                client = wrapper.client
+                cookies = client._cookies if hasattr(client, '_cookies') else {}
+                config["tokens"].append({
+                    "id": client_id,
+                    "csrf_token": cookies.get("next-auth.csrf-token", ""),
+                    "session_token": cookies.get("__Secure-next-auth.session-token", ""),
+                })
+
+            with open(self._config_path, "w", encoding="utf-8") as f:
+                json.dump(config, f, ensure_ascii=False, indent=2)
+
+            logger.info(f"Config saved to {self._config_path}")
+        except Exception as e:
+            logger.error(f"Failed to save config: {e}")
