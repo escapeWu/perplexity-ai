@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react'
 import { useAuth } from 'hooks/useAuth'
 import { useToast } from 'hooks/useToast'
 import { usePool } from 'hooks/usePool'
+import { useVersionCheck } from 'hooks/useVersionCheck'
 import { apiCall, importTokenConfig, TokenConfig } from 'lib/api'
 import { AuthBar } from './AuthBar'
 import { StatsGrid } from './StatsGrid'
@@ -18,6 +19,7 @@ export function App() {
   const { adminToken, isAuthenticated, login, logout } = useAuth()
   const { toasts, addToast, removeToast } = useToast()
   const { data, hbConfig, setHbConfig, fallbackConfig, setFallbackConfig, lastSync, refreshData } = usePool()
+  const versionInfo = useVersionCheck()
 
   const [activeTab, setActiveTab] = useState<TabType>('pool')
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
@@ -124,8 +126,18 @@ export function App() {
                 </span>
               </h1>
               <p className="font-mono text-gray-400 mt-2 bg-gray-900 inline-block px-2">
-                /// MANAGER_V2.1_REACT
+                /// MANAGER_v{__APP_VERSION__}
               </p>
+              {versionInfo.hasUpdate && (
+                <a
+                  href={versionInfo.releaseUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="ml-3 font-mono text-xs bg-neon-pink text-gray-900 px-2 py-1 uppercase font-bold hover:bg-white transition-colors animate-pulse"
+                >
+                  Update Available: {versionInfo.latestVersion}
+                </a>
+              )}
             </div>
             <div className="font-mono text-xs md:text-sm text-right">
               <a
