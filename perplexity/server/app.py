@@ -3,23 +3,53 @@ FastMCP application instance and shared utilities.
 """
 
 import os
+from contextlib import asynccontextmanager
 from typing import Any, Dict, Iterable, List, Optional, Union
 
 from fastmcp import FastMCP
 from fastmcp.server.middleware import Middleware, MiddlewareContext
 from fastmcp.server.dependencies import get_http_headers
+from starlette.applications import Starlette
 
 from .client_pool import ClientPool
 from ..client import Client
 from ..config import SEARCH_LANGUAGES
 from ..exceptions import ValidationError
+from ..logger import get_logger
 
 from .utils import (
     sanitize_query, validate_file_data, validate_query_limits, validate_search_params,
 )
 
+logger = get_logger("server.app")
+
 # API 密钥配置（从环境变量读取，默认为 sk-123456）
 MCP_TOKEN = os.getenv("MCP_TOKEN", "sk-123456")
+
+# 全局 ClientPool 实例
+_pool: Optional[ClientPool] = None
+
+
+def get_pool() -> ClientPool:
+    """Get or create the singleton ClientPool instance."""
+    global _pool
+    if _pool is None:
+        _pool = ClientPool()
+    return _pool
+
+
+@asynccontextmanager
+async def app_lifespan(server: FastMCP):
+    """Application lifespan handler for startup/shutdown events."""
+    # Startup: Initialize pool and start heartbeat
+    pool = get_pool()
+    if pool.is_heartbeat_enabled():
+        pool.start_heartbeat()
+        logger.info("Heartbeat started via lifespan")
+    yield
+    # Shutdown: Stop heartbeat gracefully
+    pool.stop_heartbeat()
+    logger.info("Heartbeat stopped via lifespan")
 
 
 class AuthMiddleware(Middleware):
@@ -38,14 +68,11 @@ class AuthMiddleware(Middleware):
         return await call_next(context)
 
 
-# Create FastMCP instance
-mcp = FastMCP("perplexity-mcp")
+# Create FastMCP instance with lifespan
+mcp = FastMCP("perplexity-mcp", lifespan=app_lifespan)
 
 # 添加认证中间件
 mcp.add_middleware(AuthMiddleware(MCP_TOKEN))
-
-# 全局 ClientPool 实例
-_pool: Optional[ClientPool] = None
 
 
 def get_pool() -> ClientPool:
