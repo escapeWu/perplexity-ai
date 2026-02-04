@@ -125,7 +125,7 @@ services:
       # - SOCKS_PROXY=${SOCKS_PROXY:-}
     volumes:
       # 挂载 token 池配置文件
-      - ./token_pool_config.json:/app/token_pool_config.json:ro
+      - ./token_pool_config.json:/app/token_pool_config.json
     restart: unless-stopped
 ```
 
