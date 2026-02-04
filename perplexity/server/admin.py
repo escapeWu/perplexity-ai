@@ -326,6 +326,21 @@ async def playground_static(request: Request):
 @mcp.custom_route("/heartbeat/config", methods=["GET"])
 async def heartbeat_config(request: Request) -> JSONResponse:
     """获取心跳配置"""
+    from perplexity.config import ADMIN_TOKEN
+
+    if not ADMIN_TOKEN:
+        return JSONResponse({
+            "status": "error",
+            "message": "Admin token not configured. Set PPLX_ADMIN_TOKEN environment variable."
+        }, status_code=403)
+
+    provided_token = request.headers.get("X-Admin-Token")
+    if not provided_token or provided_token != ADMIN_TOKEN:
+        return JSONResponse({
+            "status": "error",
+            "message": "Invalid or missing admin token."
+        }, status_code=401)
+
     pool = get_pool()
     return JSONResponse({
         "status": "ok",
