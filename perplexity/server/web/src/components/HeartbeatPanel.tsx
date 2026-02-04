@@ -125,11 +125,12 @@ export function HeartbeatPanel({
               </label>
               <input
                 type="number"
-                min="1"
+                min="0.1"
+                step="0.1"
                 max="24"
                 value={configForm.interval}
                 onChange={(e) =>
-                  setConfigForm({ ...configForm, interval: parseInt(e.target.value) || 6 })
+                  setConfigForm({ ...configForm, interval: parseFloat(e.target.value) || 6 })
                 }
                 className="w-full bg-gray-800 border border-gray-700 px-3 py-2 text-white font-mono text-sm focus:outline-none focus:border-acid"
               />
