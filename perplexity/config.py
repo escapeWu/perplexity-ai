@@ -5,6 +5,7 @@ This module contains all configurable constants used throughout the library.
 Modify these values to customize behavior without changing core code.
 """
 
+import logging
 import os
 from pathlib import Path
 from typing import Dict, Optional
@@ -34,6 +35,12 @@ else:
 #   socks5://user:pass@127.0.0.1:1080
 #   socks5://user:pass@127.0.0.1:1080#my-proxy
 SOCKS_PROXY: Optional[str] = os.getenv("SOCKS_PROXY", None)
+
+_logger = logging.getLogger(__name__)
+if SOCKS_PROXY:
+    _logger.debug("SOCKS_PROXY loaded: %s", SOCKS_PROXY.split("@")[-1].split("#")[0])
+else:
+    _logger.debug("SOCKS_PROXY not configured, will use direct connection")
 
 # Token Pool Configuration
 # Path to JSON config file containing multiple tokens for load balancing

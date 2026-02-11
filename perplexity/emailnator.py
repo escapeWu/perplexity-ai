@@ -3,6 +3,7 @@
 # urllib.parse: URL parsing utilities
 # curl_cffi: HTTP requests
 import time
+import logging
 from urllib.parse import unquote
 
 # Try importing curl_cffi, but allow it to fail for testing environments
@@ -23,6 +24,8 @@ from .config import (
     EMAILNATOR_MESSAGE_LIST_ENDPOINT,
     SOCKS_PROXY,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class Emailnator:
@@ -52,9 +55,18 @@ class Emailnator:
         if SOCKS_PROXY:
             # Remove the remark part (after #) if present
             proxy_url = SOCKS_PROXY.split("#")[0] if "#" in SOCKS_PROXY else SOCKS_PROXY
+            logger.debug(
+                "Emailnator proxy configured: %s", proxy_url.split("@")[-1]
+            )
+        else:
+            logger.debug("Emailnator proxy not configured, using direct connection")
 
         # Initialize HTTP session
         self.s = requests.Session(headers=headers, cookies=cookies, proxy=proxy_url)
+        logger.debug(
+            "Emailnator session initialized (proxy=%s)",
+            "enabled" if proxy_url else "disabled",
+        )
 
         # Prepare email generation options
         data = {"email": []}
@@ -69,6 +81,7 @@ class Emailnator:
 
         # Generate a new email address
         while True:
+            logger.debug("Emailnator requesting new email via %s", EMAILNATOR_GENERATE_ENDPOINT)
             resp = self.s.post(EMAILNATOR_GENERATE_ENDPOINT, json=data).json()
             if "email" in resp:
                 break

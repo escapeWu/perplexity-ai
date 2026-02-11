@@ -10,6 +10,7 @@ import re
 import sys
 import json
 import random
+import logging
 import mimetypes
 from uuid import uuid4
 
@@ -39,6 +40,8 @@ from .config import (
 )
 from .emailnator import Emailnator
 
+logger = logging.getLogger(__name__)
+
 
 class Client:
     """
@@ -52,6 +55,11 @@ class Client:
         if SOCKS_PROXY:
             # Remove the remark part (after #) if present
             proxy_url = SOCKS_PROXY.split("#")[0] if "#" in SOCKS_PROXY else SOCKS_PROXY
+            logger.debug(
+                "Client proxy configured: %s", proxy_url.split("@")[-1]
+            )
+        else:
+            logger.debug("Client proxy not configured, using direct connection")
 
         # Store original cookies for export
         self._cookies = cookies.copy() if cookies else {}
@@ -62,6 +70,10 @@ class Client:
             cookies=cookies,
             impersonate="chrome",
             proxy=proxy_url,
+        )
+        logger.debug(
+            "Client session initialized (impersonate=chrome, proxy=%s)",
+            "enabled" if proxy_url else "disabled",
         )
 
         # Flags and counters for account and query management
@@ -78,6 +90,7 @@ class Client:
         self.timestamp = format(random.getrandbits(32), "08x")
 
         # Initialize session by making a GET request
+        logger.debug("Client initializing auth session via %s", ENDPOINT_AUTH_SESSION)
         self.session.get(ENDPOINT_AUTH_SESSION)
 
     def get_user_info(self) -> dict:
