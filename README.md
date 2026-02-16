@@ -18,6 +18,7 @@ An unofficial Python API for Perplexity.ai that exposes search capabilities via 
 <img width="1894" height="989" alt="image" src="https://github.com/user-attachments/assets/4a495432-8305-4820-8b4a-d7e54986ba45" />
 
 ## Changelog
++ **2026-02-16**: Added global incognito toggle — force all queries to run in incognito mode via Admin UI or API.
 + **2026-02-01**: Added automatic fallback mechanism (downgrades to anonymous mode when tokens fail); added real-time log viewing.
 + **2026-01-19**: Added SKILL support (`.claude/skills/perplexity-search`).
 + **2026-01-16**: Refactored project structure; added OpenAI endpoint adaptation.
@@ -52,6 +53,9 @@ Edit `token_pool_config.json` with your Perplexity account tokens:
   },
   "fallback": {
     "fallback_to_auto": true
+  },
+  "incognito": {
+    "enabled": false
   },
   "tokens": [
     {
@@ -91,6 +95,16 @@ Automatically downgrades to anonymous Auto mode when all tokens are unavailable:
 | Option | Description |
 |--------|-------------|
 | `fallback_to_auto` | Enable fallback to anonymous mode (default `true`) |
+
+#### Incognito Configuration (Optional)
+
+When enabled, forces all queries (MCP and OpenAI endpoints) to run in incognito mode, preventing search history from being saved on Perplexity accounts:
+
+| Option | Description |
+|--------|-------------|
+| `enabled` | Force incognito mode for all queries (default `false`) |
+
+> Can also be toggled at runtime via the Admin UI or `POST /incognito/config` API.
 
 #### 2. Start the Service
 

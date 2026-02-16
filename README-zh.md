@@ -18,6 +18,7 @@
 <img width="1894" height="989" alt="image" src="https://github.com/user-attachments/assets/4a495432-8305-4820-8b4a-d7e54986ba45" />
 
 ## 更新记录
++ **2026-02-16**：新增全局隐身模式开关，可通过管理面板或 API 强制所有查询使用隐身模式
 + **2026-02-01**：新增自动回退机制，当 Token 失效时自动降级到匿名模式；新增实时日志查看
 + **2026-01-19**：增加 SKILL 支持，位于 `.claude/skills/perplexity-search`
 + **2026-01-16**：重构项目结构，增加 OpenAI 端点适配
@@ -53,6 +54,9 @@ cp token_pool_config-example.json token_pool_config.json
   },
   "fallback": {
     "fallback_to_auto": true
+  },
+  "incognito": {
+    "enabled": false
   },
   "tokens": [
     {
@@ -94,6 +98,16 @@ cp token_pool_config-example.json token_pool_config.json
 | `fallback_to_auto` | 当所有 token 失败时，是否自动降级到匿名模式 (默认 `true`) |
 
 > 如果不需要此功能，可以在配置文件中将 `fallback_to_auto` 设为 `false`，或者通过 Web UI 进行动态开关。
+
+#### 隐身模式配置（可选）
+
+启用后，所有查询（MCP 和 OpenAI 端点）将强制使用隐身模式，不会在 Perplexity 账户中保存搜索历史：
+
+| 配置项 | 说明 |
+|--------|------|
+| `enabled` | 强制所有查询使用隐身模式 (默认 `false`) |
+
+> 也可以通过管理面板或 `POST /incognito/config` API 在运行时动态开关。
 
 > 如果不需要心跳检测功能，可以省略 `heart_beat` 配置或将 `enable` 设为 `false`
 
