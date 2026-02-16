@@ -391,6 +391,49 @@ async def fallback_config_update(request: Request) -> JSONResponse:
     return JSONResponse(result)
 
 
+# ==================== Incognito API 端点 ====================
+
+@mcp.custom_route("/incognito/config", methods=["GET"])
+async def incognito_config(request: Request) -> JSONResponse:
+    """获取 incognito 配置"""
+    pool = get_pool()
+    return JSONResponse({
+        "status": "ok",
+        "config": pool.get_incognito_config()
+    })
+
+
+@mcp.custom_route("/incognito/config", methods=["POST"])
+async def incognito_config_update(request: Request) -> JSONResponse:
+    """更新 incognito 配置"""
+    from perplexity.config import ADMIN_TOKEN
+
+    if not ADMIN_TOKEN:
+        return JSONResponse({
+            "status": "error",
+            "message": "Admin token not configured. Set PPLX_ADMIN_TOKEN environment variable."
+        }, status_code=403)
+
+    provided_token = request.headers.get("X-Admin-Token")
+    if not provided_token or provided_token != ADMIN_TOKEN:
+        return JSONResponse({
+            "status": "error",
+            "message": "Invalid or missing admin token."
+        }, status_code=401)
+
+    pool = get_pool()
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({
+            "status": "error",
+            "message": "Invalid JSON body"
+        }, status_code=400)
+
+    result = pool.update_incognito_config(body)
+    return JSONResponse(result)
+
+
 @mcp.custom_route("/heartbeat/config", methods=["POST"])
 async def heartbeat_config_update(request: Request) -> JSONResponse:
     """更新心跳配置"""

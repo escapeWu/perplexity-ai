@@ -136,6 +136,10 @@ class ClientPool:
         self._fallback_config: Dict[str, Any] = {
             "fallback_to_auto": True  # Enable fallback to anonymous auto mode by default
         }
+        # Incognito configuration
+        self._incognito_config: Dict[str, Any] = {
+            "enabled": False
+        }
         self._heartbeat_task: Optional[asyncio.Task] = None
         self._config_path: Optional[str] = None
 
@@ -206,6 +210,13 @@ class ClientPool:
         if fallback and isinstance(fallback, dict):
             self._fallback_config = {
                 "fallback_to_auto": fallback.get("fallback_to_auto", True)
+            }
+
+        # Load incognito configuration if present
+        incognito = config.get("incognito", {})
+        if incognito and isinstance(incognito, dict):
+            self._incognito_config = {
+                "enabled": incognito.get("enabled", False)
             }
 
         tokens = config.get("tokens", [])
@@ -666,6 +677,49 @@ class ClientPool:
 
         return {"status": "ok", "config": self._fallback_config.copy()}
 
+    # ==================== Incognito Methods ====================
+
+    def get_incognito_config(self) -> Dict[str, Any]:
+        """Get the current incognito configuration."""
+        return self._incognito_config.copy()
+
+    def is_incognito_enabled(self) -> bool:
+        """Check if incognito mode is enabled."""
+        return self._incognito_config.get("enabled", False)
+
+    def update_incognito_config(self, new_config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Update incognito configuration and save to config file.
+
+        Args:
+            new_config: Dict with configuration fields to update
+
+        Returns:
+            Dict with status and updated config
+        """
+        if "enabled" in new_config:
+            self._incognito_config["enabled"] = new_config["enabled"]
+
+        # Save to config file if available
+        if self._config_path and os.path.exists(self._config_path):
+            try:
+                with open(self._config_path, "r", encoding="utf-8") as f:
+                    config = json.load(f)
+
+                config["incognito"] = {
+                    "enabled": self._incognito_config["enabled"]
+                }
+
+                with open(self._config_path, "w", encoding="utf-8") as f:
+                    json.dump(config, f, ensure_ascii=False, indent=2)
+
+                logger.info(f"Incognito config saved to {self._config_path}")
+            except Exception as e:
+                logger.error(f"Failed to save incognito config: {e}")
+                return {"status": "error", "message": f"Failed to save config: {e}"}
+
+        return {"status": "ok", "config": self._incognito_config.copy()}
+
     async def _send_telegram_notification(self, message: str) -> None:
         """Send a notification to Telegram."""
         bot_token = self._heartbeat_config.get("tg_bot_token")
@@ -1003,6 +1057,7 @@ class ClientPool:
             return {
                 "heart_beat": self._heartbeat_config.copy(),
                 "fallback": self._fallback_config.copy(),
+                "incognito": self._incognito_config.copy(),
                 "tokens": tokens,
             }
 
@@ -1100,6 +1155,7 @@ class ClientPool:
             config = {
                 "heart_beat": self._heartbeat_config.copy(),
                 "fallback": self._fallback_config.copy(),
+                "incognito": self._incognito_config.copy(),
                 "tokens": [],
             }
 

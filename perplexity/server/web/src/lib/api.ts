@@ -31,6 +31,10 @@ export interface FallbackConfig {
   fallback_to_auto: boolean
 }
 
+export interface IncognitoConfig {
+  enabled: boolean
+}
+
 export interface ApiResponse<T = unknown> {
   status: 'ok' | 'error'
   message?: string
@@ -72,6 +76,26 @@ export async function updateFallbackConfig(
   adminToken: string
 ): Promise<ApiResponse<FallbackConfig>> {
   const resp = await fetch(`${API_BASE}/fallback/config`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Admin-Token': adminToken,
+    },
+    body: JSON.stringify(config),
+  })
+  return resp.json()
+}
+
+export async function fetchIncognitoConfig(): Promise<ApiResponse<IncognitoConfig>> {
+  const resp = await fetch(`${API_BASE}/incognito/config`)
+  return resp.json()
+}
+
+export async function updateIncognitoConfig(
+  config: Partial<IncognitoConfig>,
+  adminToken: string
+): Promise<ApiResponse<IncognitoConfig>> {
+  const resp = await fetch(`${API_BASE}/incognito/config`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

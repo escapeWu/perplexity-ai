@@ -1,16 +1,18 @@
 import { useState } from 'react'
-import { ClientInfo, apiCall, updateFallbackConfig, downloadSingleTokenConfig } from 'lib/api'
+import { ClientInfo, apiCall, updateFallbackConfig, updateIncognitoConfig, downloadSingleTokenConfig } from 'lib/api'
 
 interface TokenTableProps {
   clients: ClientInfo[]
   adminToken: string
   isAuthenticated: boolean
   fallbackToAuto: boolean
+  incognitoEnabled: boolean
   onToast: (message: string, type: 'success' | 'error') => void
   onRefresh: () => void
   onAddClick: () => void
   onConfirmDelete: (id: string) => void
   onFallbackChange: (enabled: boolean) => void
+  onIncognitoChange: (enabled: boolean) => void
 }
 
 export function TokenTable({
@@ -18,15 +20,18 @@ export function TokenTable({
   adminToken,
   isAuthenticated,
   fallbackToAuto,
+  incognitoEnabled,
   onToast,
   onRefresh,
   onAddClick,
   onConfirmDelete,
   onFallbackChange,
+  onIncognitoChange,
 }: TokenTableProps) {
   const [testingIds, setTestingIds] = useState<Set<string>>(new Set())
   const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set())
   const [updatingFallback, setUpdatingFallback] = useState(false)
+  const [updatingIncognito, setUpdatingIncognito] = useState(false)
 
   const getWeightColor = (weight: number) => {
     if (weight >= 70) return 'bg-acid'
@@ -112,6 +117,32 @@ export function TokenTable({
     }
   }
 
+  const handleToggleIncognito = async () => {
+    if (!isAuthenticated) {
+      onToast('AUTH_REQUIRED', 'error')
+      return
+    }
+
+    setUpdatingIncognito(true)
+    try {
+      const newValue = !incognitoEnabled
+      const resp = await updateIncognitoConfig({ enabled: newValue }, adminToken)
+      if (resp.status === 'ok') {
+        onIncognitoChange(newValue)
+        onToast(
+          newValue
+            ? 'Incognito mode ON. All queries will not save history.'
+            : 'Incognito mode OFF. Queries will save history normally.',
+          'success'
+        )
+      } else {
+        onToast(resp.message || 'ERROR', 'error')
+      }
+    } finally {
+      setUpdatingIncognito(false)
+    }
+  }
+
   const handleDownload = async (id: string) => {
     if (!isAuthenticated) {
       onToast('AUTH_REQUIRED', 'error')
@@ -151,6 +182,35 @@ export function TokenTable({
             Active Tokens
           </h2>
           <div className="flex gap-3">
+            <button
+              onClick={handleToggleIncognito}
+              disabled={!isAuthenticated || updatingIncognito}
+              className={`px-4 py-2 font-bold border transition-all font-mono text-sm uppercase flex items-center gap-2 ${
+                !isAuthenticated || updatingIncognito
+                  ? 'bg-gray-800 text-gray-500 border-gray-700 cursor-not-allowed'
+                  : incognitoEnabled
+                    ? 'bg-purple-500 text-black border-purple-500 shadow-[4px_4px_0px_0px_rgba(168,85,247,0.5)] hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px] hover:bg-white'
+                    : 'bg-gray-600 text-white border-gray-600 shadow-[4px_4px_0px_0px_rgba(75,85,99,0.5)] hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px] hover:bg-white hover:text-black'
+              }`}
+            >
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d={incognitoEnabled
+                    ? "M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L3 3m6.878 6.878L21 21"
+                    : "M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                  }
+                />
+              </svg>
+              {updatingIncognito ? '...' : incognitoEnabled ? 'INCOGNITO' : 'NORMAL'}
+            </button>
             <button
               onClick={handleToggleFallback}
               disabled={!isAuthenticated || updatingFallback}

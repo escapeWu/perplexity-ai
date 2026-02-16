@@ -17,9 +17,9 @@ from .utils import (
 )
 
 try:
-    from .app import mcp, run_query, MCP_TOKEN
+    from .app import mcp, run_query, MCP_TOKEN, get_pool
 except ImportError:
-    from perplexity.server.app import mcp, run_query, MCP_TOKEN
+    from perplexity.server.app import mcp, run_query, MCP_TOKEN, get_pool
 
 # If mcp is None (e.g. testing env), create a dummy decorator
 if mcp is None:
@@ -62,8 +62,10 @@ async def _non_stream_chat_response(
 ) -> JSONResponse:
     """Generate non-streaming chat completion response."""
     # Call run_query in thread pool
+    pool = get_pool()
+    incognito = pool.is_incognito_enabled()
     result = await asyncio.to_thread(
-        run_query, query, mode, model, None, "en-US", False, None, fallback_to_auto
+        run_query, query, mode, model, None, "en-US", incognito, None, fallback_to_auto
     )
 
     if result.get("status") == "error":

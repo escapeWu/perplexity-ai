@@ -198,7 +198,11 @@ def run_query(
     should_fallback = fallback_to_auto and pool.is_fallback_to_auto_enabled()
     is_pro_mode = mode in ("pro", "reasoning", "deep research")
 
-    logger.debug(f"Starting query: mode={mode}, model={model}, fallback_enabled={should_fallback}, is_pro_mode={is_pro_mode}")
+    # Check global incognito override
+    if pool.is_incognito_enabled():
+        incognito = True
+
+    logger.debug(f"Starting query: mode={mode}, model={model}, fallback_enabled={should_fallback}, is_pro_mode={is_pro_mode}, incognito={incognito}")
 
     # --- 3. Client Pool Rotation ---
     # For Pro mode: first try non-downgraded clients, then fallback to auto if enabled

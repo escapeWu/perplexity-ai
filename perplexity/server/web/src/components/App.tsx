@@ -18,7 +18,7 @@ type TabType = 'pool' | 'logs'
 export function App() {
   const { adminToken, isAuthenticated, login, logout } = useAuth()
   const { toasts, addToast, removeToast } = useToast()
-  const { data, hbConfig, setHbConfig, fallbackConfig, setFallbackConfig, lastSync, refreshData } = usePool()
+  const { data, hbConfig, setHbConfig, fallbackConfig, setFallbackConfig, incognitoConfig, setIncognitoConfig, lastSync, refreshData } = usePool()
   const versionInfo = useVersionCheck()
 
   const [activeTab, setActiveTab] = useState<TabType>('pool')
@@ -213,11 +213,13 @@ export function App() {
               adminToken={adminToken}
               isAuthenticated={isAuthenticated}
               fallbackToAuto={fallbackConfig.fallback_to_auto}
+              incognitoEnabled={incognitoConfig.enabled}
               onToast={addToast}
               onRefresh={refreshData}
               onAddClick={() => setIsAddModalOpen(true)}
               onConfirmDelete={confirmDelete}
               onFallbackChange={(enabled) => setFallbackConfig({ fallback_to_auto: enabled })}
+              onIncognitoChange={(enabled) => setIncognitoConfig({ enabled })}
             />
           </>
         ) : (

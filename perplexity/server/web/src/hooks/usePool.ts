@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { fetchPoolStatus, fetchHeartbeatConfig, fetchFallbackConfig, PoolStatus, HeartbeatConfig, FallbackConfig } from 'lib/api'
+import { fetchPoolStatus, fetchHeartbeatConfig, fetchFallbackConfig, fetchIncognitoConfig, PoolStatus, HeartbeatConfig, FallbackConfig, IncognitoConfig } from 'lib/api'
 import { useAuth } from './useAuth'
 
 export function usePool() {
@@ -12,6 +12,7 @@ export function usePool() {
   })
   const [hbConfig, setHbConfig] = useState<HeartbeatConfig | null>(null)
   const [fallbackConfig, setFallbackConfig] = useState<FallbackConfig>({ fallback_to_auto: true })
+  const [incognitoConfig, setIncognitoConfig] = useState<IncognitoConfig>({ enabled: false })
   const [isLoading, setIsLoading] = useState(false)
   const [lastSync, setLastSync] = useState<string | null>(null)
 
@@ -31,10 +32,11 @@ export function usePool() {
 
     setIsLoading(true)
     try {
-      const [poolData, hbResp, fallbackResp] = await Promise.all([
+      const [poolData, hbResp, fallbackResp, incognitoResp] = await Promise.all([
         fetchPoolStatus(),
         fetchHeartbeatConfig(adminToken),
         fetchFallbackConfig(),
+        fetchIncognitoConfig(),
       ])
       setData(poolData)
       setLastSync(new Date().toLocaleTimeString('en-US', { hour12: false }))
@@ -44,6 +46,9 @@ export function usePool() {
       }
       if (fallbackResp.status === 'ok' && fallbackResp.config) {
         setFallbackConfig(fallbackResp.config)
+      }
+      if (incognitoResp.status === 'ok' && incognitoResp.config) {
+        setIncognitoConfig(incognitoResp.config)
       }
     } catch (e) {
       console.error('Failed to fetch data:', e)
@@ -64,6 +69,8 @@ export function usePool() {
     setHbConfig,
     fallbackConfig,
     setFallbackConfig,
+    incognitoConfig,
+    setIncognitoConfig,
     isLoading,
     lastSync,
     refreshData,
