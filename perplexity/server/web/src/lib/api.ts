@@ -223,9 +223,20 @@ export interface OAIModelsResponse {
   data: OAIModel[]
 }
 
+export interface TextPart {
+  type: 'text'
+  text: string
+}
+
+export interface InputFilePart {
+  type: 'input_file'
+  filename: string
+  file_data: string
+}
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
-  content: string
+  content: string | Array<TextPart | InputFilePart>
   sources?: Source[]
 }
 
@@ -285,7 +296,7 @@ export async function fetchOAIModels(apiToken: string): Promise<OAIModelsRespons
 // Helper to strip sources from messages before sending to API
 function cleanMessagesForRequest(
   messages: ChatMessage[]
-): Array<{ role: string; content: string }> {
+): Array<{ role: string; content: string | Array<TextPart | InputFilePart> }> {
   return messages.map(({ role, content }) => ({ role, content }))
 }
 

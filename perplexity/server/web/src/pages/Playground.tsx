@@ -13,11 +13,14 @@ export function Playground() {
     models,
     selectedModel,
     apiToken,
+    pendingFiles,
     setSelectedModel,
     saveApiToken,
     loadModels,
     sendMessage,
     clearChat,
+    addFiles,
+    removeFile,
   } = useChat()
 
   const [isHeaderVisible, setIsHeaderVisible] = useState(true)
@@ -123,6 +126,9 @@ export function Playground() {
             models={models}
             selectedModel={selectedModel}
             onSelectModel={setSelectedModel}
+            pendingFiles={pendingFiles}
+            onAddFiles={addFiles}
+            onRemoveFile={removeFile}
           />
         </div>
       </main>

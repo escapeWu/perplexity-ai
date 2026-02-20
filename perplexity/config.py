@@ -154,6 +154,28 @@ EMAILNATOR_HEADERS = {
     "x-requested-with": "XMLHttpRequest",
 }
 
+# Allowed file extensions for upload (documents, code, images, audio, video)
+ALLOWED_FILE_EXTENSIONS: frozenset = frozenset({
+    # Documents
+    ".pdf", ".doc", ".docx", ".pptx", ".xlsx", ".csv", ".txt", ".text",
+    ".md", ".markdown", ".rmd", ".latex", ".tex",
+    # Code & Config
+    ".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".rs", ".java", ".cpp",
+    ".c", ".cxx", ".h", ".hpp", ".cs", ".rb", ".php", ".pl", ".pm",
+    ".swift", ".kt", ".kts", ".scala", ".dart", ".lua", ".r", ".R",
+    ".m", ".sh", ".bash", ".zsh", ".fish", ".ksh", ".bat", ".sql",
+    ".html", ".htm", ".css", ".less", ".xml", ".json", ".yaml", ".yml",
+    ".toml", ".ini", ".conf", ".config", ".in", ".log",
+    ".coffee", ".diff", ".ipynb",
+    # Images
+    ".jpg", ".jpeg", ".jpe", ".jp2", ".png", ".gif", ".bmp",
+    ".tiff", ".tif", ".svg", ".webp", ".ico", ".avif", ".heic", ".heif",
+    # Audio
+    ".mp3", ".wav", ".aiff", ".ogg", ".flac",
+    # Video
+    ".mp4", ".mpeg", ".mpg", ".mov", ".avi", ".flv", ".webm", ".wmv", ".3gp",
+})
+
 # Retry Configuration
 RETRY_MAX_ATTEMPTS = 3
 RETRY_BACKOFF_FACTOR = 2
