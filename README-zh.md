@@ -18,6 +18,7 @@
 <img width="1894" height="989" alt="image" src="https://github.com/user-attachments/assets/4a495432-8305-4820-8b4a-d7e54986ba45" />
 
 ## 更新记录
++ **2026-02-20**：更新模型选项 — 新增 Claude 4.6 Sonnet 和 Gemini 3.1 Pro，移除 Claude 4.5 和 Gemini 3.0
 + **2026-02-16**：新增全局隐身模式开关，可通过管理面板或 API 强制所有查询使用隐身模式
 + **2026-02-01**：新增自动回退机制，当 Token 失效时自动降级到匿名模式；新增实时日志查看
 + **2026-01-19**：增加 SKILL 支持，位于 `.claude/skills/perplexity-search`
@@ -233,13 +234,14 @@ curl http://127.0.0.1:8000/v1/chat/completions \
 | `perplexity-search` | pro | 默认搜索模型 |
 | `sonar-search` | pro | Sonar 模型 |
 | `gpt-5-2-search` | pro | GPT-5.2 |
-| `claude-4-5-sonnet-search` | pro | Claude 4.5 Sonnet |
+| `claude-4-6-sonnet-search` | pro | Claude 4.6 Sonnet |
+| `gemini-3-1-pro-search` | pro | Gemini 3.1 Pro |
 | `grok-4-1-search` | pro | Grok 4.1 |
 | **Reasoning 模式** | | |
 | `perplexity-reasoning` | reasoning | 默认推理模型 |
 | `gpt-5-2-thinking-reasoning` | reasoning | GPT-5.2 Thinking |
-| `claude-4-5-sonnet-thinking-reasoning` | reasoning | Claude 4.5 Sonnet Thinking |
-| `gemini-3-0-pro-reasoning` | reasoning | Gemini 3.0 Pro |
+| `claude-4-6-sonnet-thinking-reasoning` | reasoning | Claude 4.6 Sonnet Thinking |
+| `gemini-3-1-pro-reasoning` | reasoning | Gemini 3.1 Pro |
 | `kimi-k2-thinking-reasoning` | reasoning | Kimi K2 Thinking |
 | `grok-4-1-reasoning-reasoning` | reasoning | Grok 4.1 Reasoning |
 | **Deep Research 模式** | | |

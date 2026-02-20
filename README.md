@@ -18,6 +18,7 @@ An unofficial Python API for Perplexity.ai that exposes search capabilities via 
 <img width="1894" height="989" alt="image" src="https://github.com/user-attachments/assets/4a495432-8305-4820-8b4a-d7e54986ba45" />
 
 ## Changelog
++ **2026-02-20**: Updated model options — added Claude 4.6 Sonnet and Gemini 3.1 Pro, removed Claude 4.5 and Gemini 3.0.
 + **2026-02-16**: Added global incognito toggle — force all queries to run in incognito mode via Admin UI or API.
 + **2026-02-01**: Added automatic fallback mechanism (downgrades to anonymous mode when tokens fail); added real-time log viewing.
 + **2026-01-19**: Added SKILL support (`.claude/skills/perplexity-search`).
@@ -207,13 +208,14 @@ curl http://127.0.0.1:8000/v1/chat/completions \
 | `perplexity-search` | pro | Default search model |
 | `sonar-search` | pro | Sonar model |
 | `gpt-5-2-search` | pro | GPT-5.2 |
-| `claude-4-5-sonnet-search` | pro | Claude 4.5 Sonnet |
+| `claude-4-6-sonnet-search` | pro | Claude 4.6 Sonnet |
+| `gemini-3-1-pro-search` | pro | Gemini 3.1 Pro |
 | `grok-4-1-search` | pro | Grok 4.1 |
 | **Reasoning Mode** | | |
 | `perplexity-reasoning` | reasoning | Default reasoning model |
 | `gpt-5-2-thinking-reasoning` | reasoning | GPT-5.2 Thinking |
-| `claude-4-5-sonnet-thinking-reasoning` | reasoning | Claude 4.5 Sonnet Thinking |
-| `gemini-3-0-pro-reasoning` | reasoning | Gemini 3.0 Pro |
+| `claude-4-6-sonnet-thinking-reasoning` | reasoning | Claude 4.6 Sonnet Thinking |
+| `gemini-3-1-pro-reasoning` | reasoning | Gemini 3.1 Pro |
 | `kimi-k2-thinking-reasoning` | reasoning | Kimi K2 Thinking |
 | `grok-4-1-reasoning-reasoning` | reasoning | Grok 4.1 Reasoning |
 | **Deep Research Mode** | | |
