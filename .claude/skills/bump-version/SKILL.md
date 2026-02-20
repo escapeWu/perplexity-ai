@@ -34,7 +34,11 @@ Use today's date. Summarize the changes since the last version based on recent c
 ```bash
 cd perplexity/server/web && npm run build
 ```
-Verify build succeeds before proceeding. The `dist/` folder is gitignored — do not force-add it.
+
+- If build **succeeds**: proceed to commit.
+- If build **fails**: fix all TypeScript/lint errors in `perplexity/server/web/src/`, then re-run the build until it passes. Do not proceed to commit until the build is green.
+
+The `dist/` folder is gitignored — do not force-add it.
 
 ### 5. Commit
 Stage only source files (never `dist/`):
