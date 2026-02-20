@@ -255,13 +255,8 @@ perplexity/
 ```
 
 ## Claude Code Integration
+https://github.com/escapeWu/skills/blob/main/skills/perplexity-search/SKILL.md
 
-Skills are located in `.claude/commands/pp/`.
-
-Usage:
-- `/pp:query <question>` - Quick search
-- `/pp:reasoning <question>` - Reasoning mode
-- `/pp:research <question>` - Deep research
 
 ## Upstream Project
 https://github.com/helallao/perplexity-ai
