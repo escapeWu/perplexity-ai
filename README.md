@@ -18,6 +18,7 @@ An unofficial Python API for Perplexity.ai that exposes search capabilities via 
 <img width="1894" height="989" alt="image" src="https://github.com/user-attachments/assets/4a495432-8305-4820-8b4a-d7e54986ba45" />
 
 ## Changelog
++ **2026-02-20**: v1.9.0 — Playground file attachment improvements: clipboard image paste (Ctrl+V) support; image files now show inline thumbnail previews in the input area.
 + **2026-02-20**: v1.8.1 — Added OAI file upload support: `/v1/chat/completions` now accepts `input_file` content parts (`file_data`, `file_url`, `file_id`); added Files API (`POST/GET/DELETE /v1/files`); added file attachment UI in playground.
 + **2026-02-20**: v1.8.0 — Simplified OAI model naming: pro mode models use base names (e.g. `gpt-5-2`), reasoning mode unified with `-thinking` suffix (e.g. `gpt-5-2-thinking`). **Breaking change**: old IDs like `gpt-5-2-search`, `gpt-5-2-thinking-reasoning` are no longer valid.
 + **2026-02-20**: Updated model options — added Claude 4.6 Sonnet and Gemini 3.1 Pro, removed Claude 4.5 and Gemini 3.0.

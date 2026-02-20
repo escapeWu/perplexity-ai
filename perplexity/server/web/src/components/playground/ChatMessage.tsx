@@ -94,9 +94,15 @@ interface ChatMessageProps {
   isStreaming?: boolean
 }
 
+function getTextContent(content: ChatMessageType['content']): string {
+  if (typeof content === 'string') return content
+  return content.filter((p) => p.type === 'text').map((p) => (p as { type: 'text'; text: string }).text).join('\n')
+}
+
 export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
   const isUser = message.role === 'user'
-  const isError = message.role === 'assistant' && message.content.startsWith('Error:')
+  const textContent = getTextContent(message.content)
+  const isError = message.role === 'assistant' && textContent.startsWith('Error:')
   const showSources = !isUser && !isError && message.sources && message.sources.length > 0
 
   return (
@@ -118,13 +124,24 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
           }`}
         >
           {/* Copy Button (Assistant Only) */}
-          {!isUser && !isError && <CopyButton content={message.content} />}
+          {!isUser && !isError && <CopyButton content={textContent} />}
 
           {/* 内容容器 */}
           <div>
             <div className="font-sans break-words text-sm font-medium tracking-wide">
               {isUser ? (
-                <span className="whitespace-pre-wrap">{message.content}</span>
+                <span className="whitespace-pre-wrap">
+                  {textContent}
+                  {Array.isArray(message.content) && message.content.filter((p) => p.type === 'input_file').length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {message.content.filter((p) => p.type === 'input_file').map((p, i) => (
+                        <span key={i} className="font-mono text-xs bg-gray-800 border border-gray-600 px-2 py-0.5 text-gray-400">
+                          📎 {(p as { type: 'input_file'; filename: string }).filename}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </span>
               ) : (
                 <div className="markdown-content">
                   <ReactMarkdown
@@ -226,7 +243,7 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
                       em: ({ children }) => <em className="italic text-gray-400">{children}</em>,
                     }}
                   >
-                    {message.content}
+                    {textContent}
                   </ReactMarkdown>
                 </div>
               )}

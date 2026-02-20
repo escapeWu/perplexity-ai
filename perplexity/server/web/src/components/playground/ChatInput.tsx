@@ -1,6 +1,64 @@
-import { useState, useCallback, useRef, KeyboardEvent } from 'react'
+import { useState, useCallback, useRef, useEffect, KeyboardEvent } from 'react'
 import { OAIModel } from 'lib/api'
 import { CustomSelect } from './CustomSelect'
+
+function FileChip({
+  file,
+  onRemove,
+}: {
+  file: File
+  onRemove?: () => void
+}) {
+  const isImage = file.type.startsWith('image/')
+  const [objectUrl, setObjectUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!isImage) return
+    const url = URL.createObjectURL(file)
+    setObjectUrl(url)
+    return () => URL.revokeObjectURL(url)
+  }, [file, isImage])
+
+  if (isImage && objectUrl) {
+    return (
+      <div className="relative group/chip inline-block">
+        <img
+          src={objectUrl}
+          alt={file.name}
+          title={file.name}
+          className="h-16 w-16 object-cover border border-gray-600"
+        />
+        {onRemove && (
+          <button
+            onClick={onRemove}
+            className="absolute top-0 right-0 bg-black/70 text-gray-400 hover:text-danger leading-none w-5 h-5 flex items-center justify-center opacity-0 group-hover/chip:opacity-100 transition-opacity text-sm"
+            title="Remove"
+          >
+            ×
+          </button>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex items-center gap-1 bg-gray-800 border border-gray-600 text-gray-300 font-mono text-xs px-2 py-1">
+      <span className="max-w-[160px] truncate" title={file.name}>
+        {file.name}
+      </span>
+      <span className="text-gray-500">({formatBytes(file.size)})</span>
+      {onRemove && (
+        <button
+          onClick={onRemove}
+          className="ml-1 text-gray-500 hover:text-danger transition-colors leading-none"
+          title="Remove file"
+        >
+          ×
+        </button>
+      )}
+    </div>
+  )
+}
 
 const ACCEPTED_EXTENSIONS = [
   '.pdf','.doc','.docx','.pptx','.xlsx','.csv','.txt','.text','.md','.markdown',
@@ -65,6 +123,21 @@ export function ChatInput({
     [handleSend]
   )
 
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent) => {
+      if (!onAddFiles) return
+      const files = Array.from(e.clipboardData.items)
+        .filter((item) => item.kind === 'file')
+        .map((item) => item.getAsFile())
+        .filter((f): f is File => f !== null)
+      if (files.length > 0) {
+        e.preventDefault()
+        onAddFiles(files)
+      }
+    },
+    [onAddFiles]
+  )
+
   const handleFileChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const files = Array.from(e.target.files || [])
@@ -81,26 +154,13 @@ export function ChatInput({
     <div className="flex flex-col gap-2 p-4 border-t-2 border-gray-700 bg-concrete">
       {/* File chips */}
       {pendingFiles.length > 0 && (
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 items-end">
           {pendingFiles.map((file, idx) => (
-            <div
+            <FileChip
               key={idx}
-              className="flex items-center gap-1 bg-gray-800 border border-gray-600 text-gray-300 font-mono text-xs px-2 py-1"
-            >
-              <span className="max-w-[160px] truncate" title={file.name}>
-                {file.name}
-              </span>
-              <span className="text-gray-500">({formatBytes(file.size)})</span>
-              {onRemoveFile && (
-                <button
-                  onClick={() => onRemoveFile(idx)}
-                  className="ml-1 text-gray-500 hover:text-danger transition-colors leading-none"
-                  title="Remove file"
-                >
-                  ×
-                </button>
-              )}
-            </div>
+              file={file}
+              onRemove={onRemoveFile ? () => onRemoveFile(idx) : undefined}
+            />
           ))}
         </div>
       )}
@@ -171,6 +231,7 @@ export function ChatInput({
             value={value}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             disabled={disabled}
             placeholder={placeholder}
             rows={1}
