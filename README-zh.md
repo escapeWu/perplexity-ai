@@ -290,14 +290,8 @@ perplexity/
 └── utils.py                 # 通用工具函数 (重试、限流、JSON解析)
 ```
 
-## 注册为 Claude Code 指令
-
-复制 `.claude/commands/pp/` 目录下创建指令文件：
-
-使用方式：
-- `/pp:query 你的问题` - 快速搜索
-- `/pp:reasoning 你的问题` - 推理模式，多步思考分析
-- `/pp:research 你的问题` - 深度研究，最全面彻底
+## Claude Code skill
+https://github.com/escapeWu/skills/blob/main/skills/perplexity-search/SKILL.md
 
 ## 上游项目
 https://github.com/helallao/perplexity-ai
