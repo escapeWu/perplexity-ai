@@ -13,7 +13,7 @@ description: Bump project version, update changelogs, commit, tag, and push. Use
 
 ### 2. Update version files
 - `pyproject.toml`: update `version = "x.x.x"`
-- Do NOT update `perplexity/server/web/package.json` (it's a boilerplate, not the project version)
+- `perplexity/server/web/package.json`: update `"version": "x.x.x"` — Vite reads this via `vite.config.ts` to inject `__APP_VERSION__` into the frontend build, which displays as `MANAGER_vX.X.X` in the admin UI
 
 ### 3. Update changelogs
 Add a new entry at the top of the changelog section in **both** files:
@@ -44,6 +44,7 @@ The `dist/` folder is gitignored — do not force-add it.
 Stage only source files (never `dist/`):
 ```bash
 git add pyproject.toml README.md README-zh.md \
+  perplexity/server/web/package.json \
   perplexity/server/web/src/
 ```
 Also stage any other modified source files relevant to the release.
