@@ -18,6 +18,7 @@ An unofficial Python API for Perplexity.ai that exposes search capabilities via 
 <img width="1894" height="989" alt="image" src="https://github.com/user-attachments/assets/4a495432-8305-4820-8b4a-d7e54986ba45" />
 
 ## Changelog
++ **2026-02-20**: v1.8.0 — Simplified OAI model naming: pro mode models use base names (e.g. `gpt-5-2`), reasoning mode unified with `-thinking` suffix (e.g. `gpt-5-2-thinking`). **Breaking change**: old IDs like `gpt-5-2-search`, `gpt-5-2-thinking-reasoning` are no longer valid.
 + **2026-02-20**: Updated model options — added Claude 4.6 Sonnet and Gemini 3.1 Pro, removed Claude 4.5 and Gemini 3.0.
 + **2026-02-16**: Added global incognito toggle — force all queries to run in incognito mode via Admin UI or API.
 + **2026-02-01**: Added automatic fallback mechanism (downgrades to anonymous mode when tokens fail); added real-time log viewing.
@@ -194,7 +195,7 @@ curl http://127.0.0.1:8000/v1/chat/completions \
   -H "Authorization: Bearer sk-123456" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "perplexity-reasoning",
+    "model": "perplexity-thinking",
     "messages": [{"role": "user", "content": "Analyze AI trends"}],
     "stream": true
   }'
@@ -204,20 +205,20 @@ curl http://127.0.0.1:8000/v1/chat/completions \
 
 | Model ID | Mode | Description |
 |----------|------|-------------|
-| **Search Mode (Pro)** | | |
+| **Search Mode** | | |
 | `perplexity-search` | pro | Default search model |
-| `sonar-search` | pro | Sonar model |
-| `gpt-5-2-search` | pro | GPT-5.2 |
-| `claude-4-6-sonnet-search` | pro | Claude 4.6 Sonnet |
-| `gemini-3-1-pro-search` | pro | Gemini 3.1 Pro |
-| `grok-4-1-search` | pro | Grok 4.1 |
-| **Reasoning Mode** | | |
-| `perplexity-reasoning` | reasoning | Default reasoning model |
-| `gpt-5-2-thinking-reasoning` | reasoning | GPT-5.2 Thinking |
-| `claude-4-6-sonnet-thinking-reasoning` | reasoning | Claude 4.6 Sonnet Thinking |
-| `gemini-3-1-pro-reasoning` | reasoning | Gemini 3.1 Pro |
-| `kimi-k2-thinking-reasoning` | reasoning | Kimi K2 Thinking |
-| `grok-4-1-reasoning-reasoning` | reasoning | Grok 4.1 Reasoning |
+| `sonar` | pro | Sonar model |
+| `gpt-5-2` | pro | GPT-5.2 |
+| `claude-4-6-sonnet` | pro | Claude 4.6 Sonnet |
+| `gemini-3-1-pro` | pro | Gemini 3.1 Pro |
+| `grok-4-1` | pro | Grok 4.1 |
+| **Thinking Mode** | | |
+| `perplexity-thinking` | reasoning | Default thinking model |
+| `gpt-5-2-thinking` | reasoning | GPT-5.2 Thinking |
+| `claude-4-6-sonnet-thinking` | reasoning | Claude 4.6 Sonnet Thinking |
+| `gemini-3-1-pro-thinking` | reasoning | Gemini 3.1 Pro Thinking |
+| `kimi-k2-thinking` | reasoning | Kimi K2 Thinking |
+| `grok-4-1-thinking` | reasoning | Grok 4.1 Thinking |
 | **Deep Research Mode** | | |
 | `perplexity-deepsearch` | deep research | Deep research model |
 
@@ -227,7 +228,7 @@ curl http://127.0.0.1:8000/v1/chat/completions \
 2. Fill in:
    - API Host: `http://127.0.0.1:8000`
    - API Key: `sk-123456`
-3. Select model: `perplexity-search` or `perplexity-reasoning`
+3. Select model: `perplexity-search` or `perplexity-thinking`
 
 ## Project Structure
 

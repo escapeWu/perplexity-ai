@@ -18,6 +18,7 @@
 <img width="1894" height="989" alt="image" src="https://github.com/user-attachments/assets/4a495432-8305-4820-8b4a-d7e54986ba45" />
 
 ## 更新记录
++ **2026-02-20**：v1.8.0 — 简化 OAI 模型命名：Search 模式模型直接使用基础名（如 `gpt-5-2`），Thinking 模式统一加 `-thinking` 后缀（如 `gpt-5-2-thinking`）。**Breaking change**：旧 ID（如 `gpt-5-2-search`、`gpt-5-2-thinking-reasoning`）不再有效。
 + **2026-02-20**：更新模型选项 — 新增 Claude 4.6 Sonnet 和 Gemini 3.1 Pro，移除 Claude 4.5 和 Gemini 3.0
 + **2026-02-16**：新增全局隐身模式开关，可通过管理面板或 API 强制所有查询使用隐身模式
 + **2026-02-01**：新增自动回退机制，当 Token 失效时自动降级到匿名模式；新增实时日志查看
@@ -220,7 +221,7 @@ curl http://127.0.0.1:8000/v1/chat/completions \
   -H "Authorization: Bearer sk-123456" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "perplexity-reasoning",
+    "model": "perplexity-thinking",
     "messages": [{"role": "user", "content": "分析一下人工智能的发展趋势"}],
     "stream": true
   }'
@@ -230,20 +231,20 @@ curl http://127.0.0.1:8000/v1/chat/completions \
 
 | 模型 ID | 模式 | 说明 |
 |---------|------|------|
-| **Search 模式（Pro）** | | |
+| **Search 模式** | | |
 | `perplexity-search` | pro | 默认搜索模型 |
-| `sonar-search` | pro | Sonar 模型 |
-| `gpt-5-2-search` | pro | GPT-5.2 |
-| `claude-4-6-sonnet-search` | pro | Claude 4.6 Sonnet |
-| `gemini-3-1-pro-search` | pro | Gemini 3.1 Pro |
-| `grok-4-1-search` | pro | Grok 4.1 |
-| **Reasoning 模式** | | |
-| `perplexity-reasoning` | reasoning | 默认推理模型 |
-| `gpt-5-2-thinking-reasoning` | reasoning | GPT-5.2 Thinking |
-| `claude-4-6-sonnet-thinking-reasoning` | reasoning | Claude 4.6 Sonnet Thinking |
-| `gemini-3-1-pro-reasoning` | reasoning | Gemini 3.1 Pro |
-| `kimi-k2-thinking-reasoning` | reasoning | Kimi K2 Thinking |
-| `grok-4-1-reasoning-reasoning` | reasoning | Grok 4.1 Reasoning |
+| `sonar` | pro | Sonar 模型 |
+| `gpt-5-2` | pro | GPT-5.2 |
+| `claude-4-6-sonnet` | pro | Claude 4.6 Sonnet |
+| `gemini-3-1-pro` | pro | Gemini 3.1 Pro |
+| `grok-4-1` | pro | Grok 4.1 |
+| **Thinking 模式** | | |
+| `perplexity-thinking` | reasoning | 默认思考模型 |
+| `gpt-5-2-thinking` | reasoning | GPT-5.2 Thinking |
+| `claude-4-6-sonnet-thinking` | reasoning | Claude 4.6 Sonnet Thinking |
+| `gemini-3-1-pro-thinking` | reasoning | Gemini 3.1 Pro Thinking |
+| `kimi-k2-thinking` | reasoning | Kimi K2 Thinking |
+| `grok-4-1-thinking` | reasoning | Grok 4.1 Thinking |
 | **Deep Research 模式** | | |
 | `perplexity-deepsearch` | deep research | 深度研究模型 |
 
@@ -255,7 +256,7 @@ curl http://127.0.0.1:8000/v1/chat/completions \
 2. 填入：
    - API Host: `http://127.0.0.1:8000`
    - API Key: `sk-123456`（与 MCP_TOKEN 一致）
-3. 选择模型如 `perplexity-search` 或 `perplexity-reasoning`
+3. 选择模型如 `perplexity-search` 或 `perplexity-thinking`
 
 ## 项目结构
 
