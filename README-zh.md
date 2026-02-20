@@ -18,6 +18,7 @@
 <img width="1894" height="989" alt="image" src="https://github.com/user-attachments/assets/4a495432-8305-4820-8b4a-d7e54986ba45" />
 
 ## 更新记录
++ **2026-02-20**：v1.9.1 — 修复前端版本号显示：同步 `package.json` 版本，使管理面板正确显示 `MANAGER_vX.X.X`。
 + **2026-02-20**：v1.9.0 — Playground 文件附件改进：支持剪切板图片粘贴（Ctrl+V）；图片文件在输入框中显示缩略图预览。
 + **2026-02-20**：v1.8.0 — 简化 OAI 模型命名：Search 模式模型直接使用基础名（如 `gpt-5-2`），Thinking 模式统一加 `-thinking` 后缀（如 `gpt-5-2-thinking`）。**Breaking change**：旧 ID（如 `gpt-5-2-search`、`gpt-5-2-thinking-reasoning`）不再有效。
 + **2026-02-20**：更新模型选项 — 新增 Claude 4.6 Sonnet 和 Gemini 3.1 Pro，移除 Claude 4.5 和 Gemini 3.0
