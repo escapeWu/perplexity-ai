@@ -24,14 +24,6 @@ except ImportError:
 
 # ==================== OpenAI-Compatible API Helpers ====================
 
-# Mode suffix mapping for OpenAI-compatible model names
-OAI_MODE_TO_SUFFIX = {
-    "auto": "search",
-    "pro": "search",
-    "reasoning": "reasoning",
-    "deep research": "deepsearch"
-}
-
 # Cache for OAI model mapping
 _OAI_MODEL_MAP: Dict[str, Tuple[str, Optional[str]]] = {}
 
@@ -46,23 +38,34 @@ def sanitize_oai_model_name(name: str) -> str:
     return name.lower().replace(".", "-").replace(" ", "-")
 
 
+def _oai_id(mode: str, model_name: Optional[str]) -> str:
+    """Compute OAI model ID for a given mode and internal model name."""
+    if model_name is None:
+        if mode == "reasoning":
+            return "perplexity-thinking"
+        elif mode == "deep research":
+            return "perplexity-deepsearch"
+        else:  # auto, pro
+            return "perplexity-search"
+    sanitized = sanitize_oai_model_name(model_name)
+    if mode == "reasoning":
+        if sanitized.endswith("-thinking"):
+            return sanitized
+        elif sanitized.endswith("-reasoning"):
+            return sanitized[: -len("-reasoning")] + "-thinking"
+        else:
+            return sanitized + "-thinking"
+    return sanitized  # pro/auto: no suffix
+
+
 def build_oai_model_map() -> Dict[str, Tuple[str, Optional[str]]]:
     """Build reverse mapping from OAI model ID to (mode, model)."""
     mapping: Dict[str, Tuple[str, Optional[str]]] = {}
 
-    # Process modes in order: auto first, then pro (pro overwrites auto for "search" suffix)
     for mode in ["auto", "pro", "reasoning", "deep research"]:
-        model_dict = MODEL_MAPPINGS.get(mode, {})
-        suffix = OAI_MODE_TO_SUFFIX.get(mode, mode)
-
-        for model_name in model_dict.keys():
-            if model_name is None:
-                oai_id = f"perplexity-{suffix}"
-            else:
-                sanitized = sanitize_oai_model_name(model_name)
-                oai_id = f"{sanitized}-{suffix}"
-
-            # Only set if not already set, OR if this is "pro" mode (overwrites "auto")
+        for model_name in MODEL_MAPPINGS.get(mode, {}).keys():
+            oai_id = _oai_id(mode, model_name)
+            # pro overwrites auto for the same default "perplexity-search"
             if oai_id not in mapping or mode == "pro":
                 mapping[oai_id] = (mode, model_name)
 
@@ -74,7 +77,7 @@ def parse_oai_model(model_id: str) -> Tuple[str, Optional[str]]:
     Parse OAI model ID to (mode, model).
 
     Args:
-        model_id: OpenAI-format model ID (e.g., "perplexity-search", "gemini-3-0-pro-reasoning")
+        model_id: OpenAI-format model ID (e.g., "perplexity-search", "gpt-5-2-thinking")
 
     Returns:
         Tuple of (mode, model) where model can be None for default models
@@ -103,19 +106,11 @@ def generate_oai_models() -> List[Dict[str, Any]]:
     seen_ids: set = set()
     created_timestamp = 1700000000  # Static timestamp
 
-    # Process modes, skip "auto" since "pro" will generate the same "perplexity-search"
+    # Skip "auto" — "pro" generates the same default perplexity-search
     for mode in ["pro", "reasoning", "deep research"]:
-        model_dict = MODEL_MAPPINGS.get(mode, {})
-        suffix = OAI_MODE_TO_SUFFIX.get(mode, mode)
+        for model_name in MODEL_MAPPINGS.get(mode, {}).keys():
+            oai_id = _oai_id(mode, model_name)
 
-        for model_name in model_dict.keys():
-            if model_name is None:
-                oai_id = f"perplexity-{suffix}"
-            else:
-                sanitized = sanitize_oai_model_name(model_name)
-                oai_id = f"{sanitized}-{suffix}"
-
-            # Skip duplicates
             if oai_id in seen_ids:
                 continue
             seen_ids.add(oai_id)

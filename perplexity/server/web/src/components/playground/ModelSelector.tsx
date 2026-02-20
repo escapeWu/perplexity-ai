@@ -11,15 +11,15 @@ interface ModelSelectorProps {
 function groupModels(models: OAIModel[]): Record<string, OAIModel[]> {
   const groups: Record<string, OAIModel[]> = {
     search: [],
-    reasoning: [],
+    thinking: [],
     deepsearch: [],
     other: [],
   }
 
   for (const model of models) {
     const id = model.id.toLowerCase()
-    if (id.includes('reasoning') || id.includes('think')) {
-      groups.reasoning.push(model)
+    if (id.endsWith('-thinking')) {
+      groups.thinking.push(model)
     } else if (id.includes('deep') || id.includes('research')) {
       groups.deepsearch.push(model)
     } else if (id.includes('search') || id.includes('sonar')) {
@@ -53,9 +53,9 @@ export function ModelSelector({ models, selectedModel, onSelect, disabled }: Mod
             ))}
           </optgroup>
         )}
-        {groups.reasoning.length > 0 && (
-          <optgroup label="Reasoning">
-            {groups.reasoning.map((m) => (
+        {groups.thinking.length > 0 && (
+          <optgroup label="Thinking">
+            {groups.thinking.map((m) => (
               <option key={m.id} value={m.id}>
                 {m.id}
               </option>
