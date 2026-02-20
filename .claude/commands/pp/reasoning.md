@@ -10,7 +10,7 @@ argument-hint: [query]
 Use Perplexity reasoning mode for multi-step thinking and problem analysis.
 
 **Features**
-- Uses reasoning models (default: gemini-3.0-pro)
+- Uses reasoning models (default: gemini-3.1-pro)
 - Multi-step thinking process
 - Good balance between speed and depth
 - Suitable for complex questions requiring logical analysis

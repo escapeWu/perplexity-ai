@@ -221,7 +221,7 @@ class TestResearchMode:
     """Research 模式测试。"""
 
     # Research 模式下的前三个可用模型（reasoning 模式）
-    RESEARCH_MODELS = [None, "gemini-3.0-pro", "gpt-5.2-thinking"]
+    RESEARCH_MODELS = [None, "gemini-3.1-pro", "gpt-5.2-thinking"]
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("model", RESEARCH_MODELS)

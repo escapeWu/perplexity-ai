@@ -71,7 +71,8 @@ async def search(
             - None: 使用默认模型 (推荐)
             - 'sonar': Perplexity 自研模型
             - 'gpt-5.2': OpenAI 最新模型
-            - 'claude-4.5-sonnet': Anthropic Claude
+            - 'claude-4.6-sonnet': Anthropic Claude
+            - 'gemini-3.1-pro': Google Gemini Pro
             - 'grok-4.1': xAI Grok
         sources: 搜索来源列表
             - 'web': 网页搜索 (默认)
@@ -99,7 +100,7 @@ async def search(
 async def research(
     query: str,
     mode: str = "reasoning",
-    model: Optional[str] = "gemini-3.0-pro",
+    model: Optional[str] = "gemini-3.1-pro",
     sources: Optional[List[str]] = None,
     language: str = "en-US",
     incognito: bool = False,
@@ -117,9 +118,9 @@ async def research(
             - 'reasoning': 推理模式，多步思考分析 (默认)
             - 'deep research': 深度研究，最全面但最耗时
         model: 指定推理模型 (仅 reasoning 模式生效)
-            - 'gemini-3.0-pro': Google Gemini Pro (默认，推荐)
+            - 'gemini-3.1-pro': Google Gemini Pro (默认，推荐)
             - 'gpt-5.2-thinking': OpenAI 思考模型
-            - 'claude-4.5-sonnet-thinking': Claude 推理模型
+            - 'claude-4.6-sonnet-thinking': Claude 推理模型
             - 'kimi-k2-thinking': Moonshot Kimi
             - 'grok-4.1-reasoning': xAI Grok 推理
         sources: 搜索来源列表
