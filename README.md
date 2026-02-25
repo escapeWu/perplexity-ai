@@ -258,5 +258,9 @@ perplexity/
 https://github.com/escapeWu/skills/blob/main/skills/perplexity-search/SKILL.md
 
 
+## Star History
+[![Star History Chart](https://api.star-history.com/svg?repos=escapeWu/perplexity-ai&type=Date)](https://star-history.com/#escapeWu/perplexity-ai&Date)
+
+
 ## Upstream Project
 https://github.com/helallao/perplexity-ai
