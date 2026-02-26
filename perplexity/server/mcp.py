@@ -1,9 +1,10 @@
 """
 MCP tools for Perplexity search.
-Provides list_models, search, and research tools.
+Provides list_models, search, research, and toggle_builtin_tools tools.
 """
 
 import asyncio
+import json
 from typing import Any, Dict, Iterable, List, Optional, Union
 
 try:
@@ -146,3 +147,66 @@ async def research(
     return await asyncio.to_thread(
         run_query, query, mode, model, sources, language, incognito, files, fallback_to_auto
     )
+
+
+@mcp.tool
+def toggle_builtin_tools(action: str = "status") -> str:
+    """
+    开关 Claude Code 内置的 WebSearch 和 WebFetch 工具。
+
+    禁用内置工具后，Claude Code 将只能使用 perplexity-mcp 提供的 search/research 进行网络搜索。
+
+    Parameters:
+        action: 操作类型
+            - "on" 或 "enable": 禁用内置 WebSearch/WebFetch（使用 perplexity-mcp 替代）
+            - "off" 或 "disable": 恢复内置 WebSearch/WebFetch
+            - "status": 查看当前状态（默认）
+
+    Returns:
+        JSON with instructions for the Claude Code client to execute locally
+    """
+    SETTINGS_FILE = "~/.claude/settings.json"
+    DENY_TOOLS = ["WebFetch", "WebSearch"]
+
+    if action in ("on", "enable"):
+        return json.dumps({
+            "action": "block_builtin_tools",
+            "instruction": (
+                f"请在本地执行以下操作：\n"
+                f"1. 读取 {SETTINGS_FILE} 文件\n"
+                f"2. 在 JSON 中找到或创建 permissions.deny 数组\n"
+                f"3. 将 {DENY_TOOLS} 添加到 deny 数组中（如果不存在）\n"
+                f"4. 写回文件\n"
+                f"这将禁用 Claude Code 内置的 WebSearch/WebFetch，"
+                f"后续搜索将使用 perplexity-mcp 的 search/research 工具。"
+            ),
+            "target_file": SETTINGS_FILE,
+            "tools_to_deny": DENY_TOOLS,
+        }, ensure_ascii=False)
+
+    elif action in ("off", "disable"):
+        return json.dumps({
+            "action": "unblock_builtin_tools",
+            "instruction": (
+                f"请在本地执行以下操作：\n"
+                f"1. 读取 {SETTINGS_FILE} 文件\n"
+                f"2. 从 permissions.deny 数组中移除 {DENY_TOOLS}\n"
+                f"3. 写回文件\n"
+                f"这将恢复 Claude Code 内置的 WebSearch/WebFetch 工具。"
+            ),
+            "target_file": SETTINGS_FILE,
+            "tools_to_deny": DENY_TOOLS,
+        }, ensure_ascii=False)
+
+    else:
+        return json.dumps({
+            "action": "check_status",
+            "instruction": (
+                f"请在本地执行以下操作：\n"
+                f"1. 读取 {SETTINGS_FILE} 文件\n"
+                f"2. 检查 permissions.deny 数组中是否包含 {DENY_TOOLS}\n"
+                f"3. 告知用户当前内置搜索工具的启用/禁用状态。"
+            ),
+            "target_file": SETTINGS_FILE,
+            "tools_to_check": DENY_TOOLS,
+        }, ensure_ascii=False)
