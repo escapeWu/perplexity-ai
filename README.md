@@ -6,12 +6,14 @@ An unofficial Python API for Perplexity.ai that exposes search capabilities via 
 
 ## Screenshots
 **ADMIN Panel**
+`https://yourdomain.com/admin/`
 <img width="2628" height="2052" alt="image" src="https://github.com/user-attachments/assets/997f0ae0-9f76-4d53-ba28-625068b508d1" />
 
 **Log View**
 <img width="2616" height="1823" alt="image" src="https://github.com/user-attachments/assets/f6cdd0ad-8266-4e14-846a-99ed1af9dc42" />
 
 **OpenAI Playground**
+`https://yourdomain.com/playground/`
 ![img_v3_02u3_eada7873-379e-42c1-bcbf-3c0466a66ffg](https://github.com/user-attachments/assets/29d75f8e-2058-4945-b486-d50b09f140a1)
 
 **MCP Integration**
