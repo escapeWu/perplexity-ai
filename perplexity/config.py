@@ -80,18 +80,16 @@ MODEL_MAPPINGS: Dict[str, Dict[str, str]] = {
     "pro": {
         None: "pplx_pro",
         "sonar": "experimental",
-        "gpt-5.2": "gpt52",
+        "gpt-5.4": "gpt54",
         "claude-4.6-sonnet": "claude46sonnet",
         "gemini-3.1-pro": "gemini31pro_high",
-        "grok-4.1": "grok41nonreasoning",
     },
     "reasoning": {
         None: "pplx_reasoning",
-        "gpt-5.2-thinking": "gpt52_thinking",
+        "gpt-5.4-thinking": "gpt54_thinking",
         "claude-4.6-sonnet-thinking": "claude46sonnetthinking",
         "gemini-3.1-pro": "gemini31pro_high",
         "kimi-k2-thinking": "kimik2thinking",
-        "grok-4.1-reasoning": "grok41reasoning",
     },
     "deep research": {None: "pplx_alpha"},
 }

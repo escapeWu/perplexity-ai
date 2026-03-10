@@ -31,7 +31,7 @@ _OAI_MODEL_MAP: Dict[str, Tuple[str, Optional[str]]] = {}
 def sanitize_oai_model_name(name: str) -> str:
     """
     Sanitize model name for OpenAI compatibility.
-    - Replace dots with dashes: "gpt-5.2" -> "gpt-5-2"
+    - Replace dots with dashes: "gpt-5.4" -> "gpt-5-4"
     - Replace spaces with dashes: "deep research" -> "deep-research"
     - Convert to lowercase
     """
@@ -77,7 +77,7 @@ def parse_oai_model(model_id: str) -> Tuple[str, Optional[str]]:
     Parse OAI model ID to (mode, model).
 
     Args:
-        model_id: OpenAI-format model ID (e.g., "perplexity-search", "gpt-5-2-thinking")
+        model_id: OpenAI-format model ID (e.g., "perplexity-search", "gpt-5-4-thinking")
 
     Returns:
         Tuple of (mode, model) where model can be None for default models

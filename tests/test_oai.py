@@ -32,7 +32,7 @@ REQUEST_TIMEOUT = 60
 TEST_QUESTION = "2026农历新年多少号，有什么习俗"
 
 # 测试模型列表
-TEST_MODELS = ["perplexity-search", "perplexity-deepsearch", "perplexity-reasoning"]
+TEST_MODELS = ["perplexity-search", "perplexity-deepsearch", "perplexity-thinking"]
 
 
 def get_auth_headers(token: str = MCP_TOKEN) -> Dict[str, str]:
@@ -123,11 +123,26 @@ class TestOAIModels:
         model_ids = [m["id"] for m in data["data"]]
 
         # 验证一些预期的模型存在
-        expected_patterns = ["perplexity-search", "reasoning", "deepsearch"]
-        for pattern in expected_patterns:
-            matching = [m for m in model_ids if pattern in m]
-            assert len(matching) > 0, f"没有找到包含 '{pattern}' 的模型"
-            print(f"console.log -> 找到 {len(matching)} 个包含 '{pattern}' 的模型")
+        expected_models = [
+            "perplexity-search",
+            "perplexity-thinking",
+            "perplexity-deepsearch",
+            "gpt-5-4",
+            "gpt-5-4-thinking",
+        ]
+        for model_id in expected_models:
+            assert model_id in model_ids, f"没有找到预期模型 '{model_id}'"
+            print(f"console.log -> 找到模型: {model_id}")
+
+        unexpected_models = [
+            "gpt-5-2",
+            "gpt-5-2-thinking",
+            "grok-4-1",
+            "grok-4-1-thinking",
+        ]
+        for model_id in unexpected_models:
+            assert model_id not in model_ids, f"不应再暴露旧模型 '{model_id}'"
+            print(f"console.log -> 已确认旧模型不存在: {model_id}")
 
 
 class TestOAIChatCompletions:
