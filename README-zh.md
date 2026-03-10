@@ -18,6 +18,7 @@
 <img width="1894" height="989" alt="image" src="https://github.com/user-attachments/assets/4a495432-8305-4820-8b4a-d7e54986ba45" />
 
 ## 更新记录
++ **2026-03-10**：v1.9.4 — 收敛支持模型集合：新增 GPT-5.4 / GPT-5.4 Thinking，移除 GPT-5.2 与 Grok 4.1 相关变体，并同步 MCP、OpenAI 模型暴露、测试与文档。
 + **2026-02-20**：v1.9.1 — 修复前端版本号显示：同步 `package.json` 版本，使管理面板正确显示 `MANAGER_vX.X.X`。
 + **2026-02-20**：v1.9.0 — Playground 文件附件改进：支持剪切板图片粘贴（Ctrl+V）；图片文件在输入框中显示缩略图预览。
 + **2026-02-20**：v1.8.0 — 简化 OAI 模型命名：Search 模式模型直接使用基础名（如 `gpt-5-2`），Thinking 模式统一加 `-thinking` 后缀（如 `gpt-5-2-thinking`）。**Breaking change**：旧 ID（如 `gpt-5-2-search`、`gpt-5-2-thinking-reasoning`）不再有效。
@@ -236,17 +237,15 @@ curl http://127.0.0.1:8000/v1/chat/completions \
 | **Search 模式** | | |
 | `perplexity-search` | pro | 默认搜索模型 |
 | `sonar` | pro | Sonar 模型 |
-| `gpt-5-2` | pro | GPT-5.2 |
+| `gpt-5-4` | pro | GPT-5.4 |
 | `claude-4-6-sonnet` | pro | Claude 4.6 Sonnet |
 | `gemini-3-1-pro` | pro | Gemini 3.1 Pro |
-| `grok-4-1` | pro | Grok 4.1 |
 | **Thinking 模式** | | |
 | `perplexity-thinking` | reasoning | 默认思考模型 |
-| `gpt-5-2-thinking` | reasoning | GPT-5.2 Thinking |
+| `gpt-5-4-thinking` | reasoning | GPT-5.4 Thinking |
 | `claude-4-6-sonnet-thinking` | reasoning | Claude 4.6 Sonnet Thinking |
 | `gemini-3-1-pro-thinking` | reasoning | Gemini 3.1 Pro Thinking |
 | `kimi-k2-thinking` | reasoning | Kimi K2 Thinking |
-| `grok-4-1-thinking` | reasoning | Grok 4.1 Thinking |
 | **Deep Research 模式** | | |
 | `perplexity-deepsearch` | deep research | 深度研究模型 |
 
