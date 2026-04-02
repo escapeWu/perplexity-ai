@@ -1,3 +1,5 @@
+# Thanks for [LINUX DO](https://linux.do/)
+
 # Perplexity MCP Server
 
 [![中文文档](https://img.shields.io/badge/docs-中文-blue.svg)](README-zh.md)
