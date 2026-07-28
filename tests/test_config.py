@@ -14,7 +14,38 @@ def test_api_endpoints_structure() -> None:
 def test_search_modes_and_models() -> None:
     print("console.log -> checking search modes and model mappings")
     assert set(config.SEARCH_MODES) >= {"auto", "pro", "reasoning"}
-    pro_models = config.MODEL_MAPPINGS["pro"]
-    assert None in pro_models
-    assert "sonar" in pro_models
+    assert config.MODEL_MAPPINGS["pro"] == {
+        None: "pplx_pro",
+        "sonar-2": "experimental",
+        "sonar": "experimental",
+        "gpt-5.6-terra": "gpt56_terra",
+        "claude-sonnet-5": "claude50sonnet",
+        "gemini-3.1-pro": "gemini31pro_high",
+        "grok-4.5": "grok45low",
+    }
+    assert config.MODEL_MAPPINGS["reasoning"] == {
+        None: "pplx_reasoning",
+        "gpt-5.6-terra-thinking": "gpt56_terra_thinking",
+        "claude-sonnet-5-thinking": "claude50sonnetthinking",
+        "gemini-3.1-pro": "gemini31pro_high",
+        "kimi-k3-thinking": "kimik3thinking",
+        "glm-5.2": "glm_5_2",
+        "grok-4.5-thinking": "grok45medium",
+        "nemotron-3-ultra": "nv_nemotron_3_ultra",
+    }
     assert "deep research" in config.MODEL_MAPPINGS
+
+    retired_models = {
+        "gpt-5.4",
+        "gpt-5.4-thinking",
+        "claude-4.6-sonnet",
+        "claude-4.6-sonnet-thinking",
+        "kimi-k2-thinking",
+    }
+    exposed_models = {
+        model
+        for mappings in config.MODEL_MAPPINGS.values()
+        for model in mappings
+        if model is not None
+    }
+    assert retired_models.isdisjoint(exposed_models)

@@ -22,6 +22,7 @@ An unofficial Python API for Perplexity.ai that exposes search capabilities via 
 <img width="1894" height="989" alt="image" src="https://github.com/user-attachments/assets/4a495432-8305-4820-8b4a-d7e54986ba45" />
 
 ## Changelog
++ **2026-07-28**: v1.10.0 — Add the current non-Max model lineup (Sonar 2, GPT-5.6 Terra, Gemini 3.1 Pro, Claude Sonnet 5, Kimi K3, GLM 5.2, Grok 4.5, and Nemotron 3 Ultra), centralize model mappings, and sync MCP/OpenAI discovery, tests, and docs.
 + **2026-05-21**: v1.9.5 — Add agent-friendly MCP aliases for quick ask, web search, reasoning, and deep research; improve tool descriptions and tests.
 + **2026-03-10**: v1.9.4 — Refresh the supported model lineup: add GPT-5.4 / GPT-5.4 Thinking, remove GPT-5.2 and Grok 4.1 variants, and sync MCP, OpenAI model exposure, tests, and docs.
 + **2026-02-20**: v1.9.1 — Fix frontend version display: sync `package.json` version so admin UI shows correct `MANAGER_vX.X.X`.
@@ -228,16 +229,21 @@ curl http://127.0.0.1:8000/v1/chat/completions \
 |----------|------|-------------|
 | **Search Mode** | | |
 | `perplexity-search` | pro | Default search model |
-| `sonar` | pro | Sonar model |
-| `gpt-5-4` | pro | GPT-5.4 |
-| `claude-4-6-sonnet` | pro | Claude 4.6 Sonnet |
+| `sonar-2` | pro | Sonar 2 |
+| `sonar` | pro | Legacy alias for Sonar 2 |
+| `gpt-5-6-terra` | pro | GPT-5.6 Terra |
+| `claude-sonnet-5` | pro | Claude Sonnet 5 |
 | `gemini-3-1-pro` | pro | Gemini 3.1 Pro |
+| `grok-4-5` | pro | Grok 4.5 |
 | **Thinking Mode** | | |
 | `perplexity-thinking` | reasoning | Default thinking model |
-| `gpt-5-4-thinking` | reasoning | GPT-5.4 Thinking |
-| `claude-4-6-sonnet-thinking` | reasoning | Claude 4.6 Sonnet Thinking |
+| `gpt-5-6-terra-thinking` | reasoning | GPT-5.6 Terra Thinking |
+| `claude-sonnet-5-thinking` | reasoning | Claude Sonnet 5 Thinking |
 | `gemini-3-1-pro-thinking` | reasoning | Gemini 3.1 Pro Thinking |
-| `kimi-k2-thinking` | reasoning | Kimi K2 Thinking |
+| `kimi-k3-thinking` | reasoning | Kimi K3 |
+| `glm-5-2-thinking` | reasoning | GLM 5.2 |
+| `grok-4-5-thinking` | reasoning | Grok 4.5 Thinking |
+| `nemotron-3-ultra-thinking` | reasoning | Nemotron 3 Ultra |
 | **Deep Research Mode** | | |
 | `perplexity-deepsearch` | deep research | Deep research model |
 

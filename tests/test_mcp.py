@@ -12,10 +12,10 @@
 import asyncio
 import json
 import os
-import pytest
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+import pytest
 from dotenv import load_dotenv
 from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
@@ -164,7 +164,7 @@ class TestSearchMode:
     """Search 模式测试。"""
 
     # Search 模式下的前三个可用模型（pro 模式）
-    SEARCH_MODELS = [None, "sonar", "gpt-5.4"]
+    SEARCH_MODELS = [None, "sonar-2", "gpt-5.6-terra"]
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("model", SEARCH_MODELS)
@@ -229,7 +229,7 @@ class TestResearchMode:
     """Research 模式测试。"""
 
     # Research 模式下的前三个可用模型（reasoning 模式）
-    RESEARCH_MODELS = [None, "gemini-3.1-pro", "gpt-5.4-thinking"]
+    RESEARCH_MODELS = [None, "gemini-3.1-pro", "gpt-5.6-terra-thinking"]
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("model", RESEARCH_MODELS)

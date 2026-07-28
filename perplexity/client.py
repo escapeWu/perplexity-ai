@@ -6,12 +6,12 @@
 # mimetypes: Guessing MIME types of files
 # uuid: Generating unique identifiers
 # curl_cffi: HTTP requests and multipart form data handling
-import re
-import sys
 import json
-import random
 import logging
 import mimetypes
+import random
+import re
+import sys
 from uuid import uuid4
 
 # Try importing curl_cffi, but allow it to fail for testing environments
@@ -22,13 +22,22 @@ except ImportError:
     # Minimal stub for testing if curl_cffi is missing
     class requests:
         class Session:
-            def __init__(self, *args, **kwargs): pass
-            def get(self, *args, **kwargs): pass
-            def post(self, *args, **kwargs): pass
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def get(self, *args, **kwargs):
+                pass
+
+            def post(self, *args, **kwargs):
+                pass
 
     class CurlMime:
-        def __init__(self, *args, **kwargs): pass
-        def addpart(self, *args, **kwargs): pass
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def addpart(self, *args, **kwargs):
+            pass
+
 
 from .config import (
     DEFAULT_HEADERS,
@@ -37,6 +46,7 @@ from .config import (
     ENDPOINT_SSE_ASK,
     ENDPOINT_UPLOAD_URL,
     FILE_UPLOAD_TIMEOUT,
+    MODEL_MAPPINGS,
     SOCKS_PROXY,
     get_search_timeout,
 )
@@ -57,9 +67,7 @@ class Client:
         if SOCKS_PROXY:
             # Remove the remark part (after #) if present
             proxy_url = SOCKS_PROXY.split("#")[0] if "#" in SOCKS_PROXY else SOCKS_PROXY
-            logger.debug(
-                "Client proxy configured: %s", proxy_url.split("@")[-1]
-            )
+            logger.debug("Client proxy configured: %s", proxy_url.split("@")[-1])
         else:
             logger.debug("Client proxy not configured, using direct connection")
 
@@ -208,27 +216,7 @@ class Client:
             "deep research",
         ], "Invalid search mode."
         assert (
-            model
-            in {
-                "auto": [None],
-                "pro": [
-                    None,
-                    "sonar",
-                    "gpt-5.4",
-                    "claude-4.6-sonnet",
-                    "gemini-3.1-pro",
-                ],
-                "reasoning": [
-                    None,
-                    "gpt-5.4-thinking",
-                    "claude-4.6-sonnet-thinking",
-                    "gemini-3.1-pro",
-                    "kimi-k2-thinking",
-                ],
-                "deep research": [None],
-            }[mode]
-            if self.own
-            else True
+            model in MODEL_MAPPINGS[mode] if self.own else True
         ), "Invalid model for the selected mode."
         assert all(
             [source in ("web", "scholar", "social") for source in sources]
@@ -274,8 +262,14 @@ class Client:
                 data=file,
             )
 
-            upload_timeout = file_upload_timeout if file_upload_timeout and file_upload_timeout > 0 else FILE_UPLOAD_TIMEOUT
-            upload_resp = self.session.post(file_upload_info["s3_bucket_url"], multipart=mp, timeout=upload_timeout)
+            upload_timeout = (
+                file_upload_timeout
+                if file_upload_timeout and file_upload_timeout > 0
+                else FILE_UPLOAD_TIMEOUT
+            )
+            upload_resp = self.session.post(
+                file_upload_info["s3_bucket_url"], multipart=mp, timeout=upload_timeout
+            )
 
             if not upload_resp.ok:
                 raise Exception("File upload error", upload_resp)
@@ -305,24 +299,7 @@ class Client:
                 "language": language,
                 "last_backend_uuid": (follow_up["backend_uuid"] if follow_up else None),
                 "mode": "concise" if mode == "auto" else "copilot",
-                "model_preference": {
-                    "auto": {None: "turbo"},
-                    "pro": {
-                        None: "pplx_pro",
-                        "sonar": "experimental",
-                        "gpt-5.4": "gpt54",
-                        "claude-4.6-sonnet": "claude46sonnet",
-                        "gemini-3.1-pro": "gemini31pro_high",
-                    },
-                    "reasoning": {
-                        None: "pplx_reasoning",
-                        "gpt-5.4-thinking": "gpt54_thinking",
-                        "claude-4.6-sonnet-thinking": "claude46sonnetthinking",
-                        "gemini-3.1-pro": "gemini31pro_high",
-                        "kimi-k2-thinking": "kimik2thinking",
-                    },
-                    "deep research": {None: "pplx_alpha"},
-                }[mode][model],
+                "model_preference": MODEL_MAPPINGS[mode][model],
                 "source": "default",
                 "sources": sources,
                 "version": "2.18",
@@ -333,7 +310,9 @@ class Client:
         # 不同模式耗时差异巨大（deep research 经常需要数分钟）。
         # 优先使用调用方显式传入的 timeout（由 ClientPool 注入），否则按 mode 兜底。
         request_timeout = timeout if timeout and timeout > 0 else get_search_timeout(mode)
-        resp = self.session.post(ENDPOINT_SSE_ASK, json=json_data, stream=True, timeout=request_timeout)
+        resp = self.session.post(
+            ENDPOINT_SSE_ASK, json=json_data, stream=True, timeout=request_timeout
+        )
         chunks = []
 
         def stream_response(resp):

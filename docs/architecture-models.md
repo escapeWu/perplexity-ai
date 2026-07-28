@@ -2,7 +2,7 @@
 type: architecture
 scope: module
 module: "models"
-date: "2026-03-10"
+date: "2026-07-28"
 keywords:
   - 模型列表
   - MODEL_MAPPINGS
@@ -16,7 +16,7 @@ tech_stack:
 
 # 模型列表分析
 
-> 生成时间：2026-03-10
+> 生成时间：2026-07-28
 > 分析模块：`perplexity/config.py`, `perplexity/server/mcp.py`, `perplexity/server/utils.py`
 
 ## 模型定义位置
@@ -29,15 +29,20 @@ tech_stack:
 |------|--------------|--------|
 | `auto` | (默认) | `turbo` |
 | `pro` | (默认) | `pplx_pro` |
-| `pro` | `sonar` | `experimental` |
-| `pro` | `gpt-5.4` | `gpt54` |
-| `pro` | `claude-4.6-sonnet` | `claude46sonnet` |
+| `pro` | `sonar-2` | `experimental` |
+| `pro` | `sonar`（兼容别名） | `experimental` |
+| `pro` | `gpt-5.6-terra` | `gpt56_terra` |
+| `pro` | `claude-sonnet-5` | `claude50sonnet` |
 | `pro` | `gemini-3.1-pro` | `gemini31pro_high` |
+| `pro` | `grok-4.5` | `grok45low` |
 | `reasoning` | (默认) | `pplx_reasoning` |
-| `reasoning` | `gpt-5.4-thinking` | `gpt54_thinking` |
-| `reasoning` | `claude-4.6-sonnet-thinking` | `claude46sonnetthinking` |
+| `reasoning` | `gpt-5.6-terra-thinking` | `gpt56_terra_thinking` |
+| `reasoning` | `claude-sonnet-5-thinking` | `claude50sonnetthinking` |
 | `reasoning` | `gemini-3.1-pro` | `gemini31pro_high` |
-| `reasoning` | `kimi-k2-thinking` | `kimik2thinking` |
+| `reasoning` | `kimi-k3-thinking` | `kimik3thinking` |
+| `reasoning` | `glm-5.2` | `glm_5_2` |
+| `reasoning` | `grok-4.5-thinking` | `grok45medium` |
+| `reasoning` | `nemotron-3-ultra` | `nv_nemotron_3_ultra` |
 | `deep research` | (默认，不可指定) | `pplx_alpha` |
 
 ## Labs 模型 (LABS_MODELS)
@@ -54,9 +59,11 @@ tech_stack:
 
 OpenAI 兼容层不会维护单独的模型名单，而是直接从 `MODEL_MAPPINGS` 派生：
 
-- `gpt-5.4` → `gpt-5-4`
-- `gpt-5.4-thinking` → `gpt-5-4-thinking`
-- `grok-4.1` / `grok-4.1-reasoning` 已不再暴露
+- `gpt-5.6-terra` → `gpt-5-6-terra`
+- `gpt-5.6-terra-thinking` → `gpt-5-6-terra-thinking`
+- `glm-5.2`（reasoning）→ `glm-5-2-thinking`
+- `nemotron-3-ultra`（reasoning）→ `nemotron-3-ultra-thinking`
+- GPT-5.6 Sol 与 Claude Opus 5 属于 Max 模型，不在本项目支持列表中
 - 默认模型仍然映射为 `perplexity-search` / `perplexity-thinking` / `perplexity-deepsearch`
 
 相关实现位于 `perplexity/server/utils.py`：

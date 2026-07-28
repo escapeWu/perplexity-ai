@@ -90,10 +90,11 @@ async def search(
             - 'pro': 专业模式，更准确的结果 (默认)
         model: 指定模型 (仅 pro 模式生效)
             - None: 使用默认模型 (推荐)
-            - 'sonar': Perplexity 自研模型
-            - 'gpt-5.4': OpenAI 最新模型
-            - 'claude-4.6-sonnet': Anthropic Claude
+            - 'sonar-2': Perplexity Sonar 2 ('sonar' 为兼容别名)
+            - 'gpt-5.6-terra': OpenAI GPT-5.6 Terra
+            - 'claude-sonnet-5': Anthropic Claude Sonnet 5
             - 'gemini-3.1-pro': Google Gemini Pro
+            - 'grok-4.5': xAI Grok 4.5
         sources: 搜索来源列表
             - 'web': 网页搜索 (默认)
             - 'scholar': 学术论文
@@ -140,9 +141,12 @@ async def research(
             - 'deep research': 深度研究，最全面但最耗时
         model: 指定推理模型 (仅 reasoning 模式生效)
             - 'gemini-3.1-pro': Google Gemini Pro (默认，推荐)
-            - 'gpt-5.4-thinking': OpenAI 思考模型
-            - 'claude-4.6-sonnet-thinking': Claude 推理模型
-            - 'kimi-k2-thinking': Moonshot Kimi
+            - 'gpt-5.6-terra-thinking': OpenAI GPT-5.6 Terra Thinking
+            - 'claude-sonnet-5-thinking': Claude Sonnet 5 Thinking
+            - 'kimi-k3-thinking': Moonshot Kimi K3
+            - 'glm-5.2': Z.ai GLM 5.2
+            - 'grok-4.5-thinking': xAI Grok 4.5 Thinking
+            - 'nemotron-3-ultra': NVIDIA Nemotron 3 Ultra
         sources: 搜索来源列表
             - 'web': 网页搜索 (默认)
             - 'scholar': 学术论文 (学术研究推荐)

@@ -8,19 +8,19 @@ and other common operations used by the server.
 from typing import Any, Dict, List, Optional, Tuple
 
 try:
-    from ..exceptions import ValidationError
     from ..config import (
+        MODEL_MAPPINGS,
         SEARCH_MODES,
         SEARCH_SOURCES,
-        MODEL_MAPPINGS,
     )
+    from ..exceptions import ValidationError
 except ImportError:
-    from perplexity.exceptions import ValidationError
     from perplexity.config import (
+        MODEL_MAPPINGS,
         SEARCH_MODES,
         SEARCH_SOURCES,
-        MODEL_MAPPINGS,
     )
+    from perplexity.exceptions import ValidationError
 
 # ==================== OpenAI-Compatible API Helpers ====================
 
@@ -31,7 +31,7 @@ _OAI_MODEL_MAP: Dict[str, Tuple[str, Optional[str]]] = {}
 def sanitize_oai_model_name(name: str) -> str:
     """
     Sanitize model name for OpenAI compatibility.
-    - Replace dots with dashes: "gpt-5.4" -> "gpt-5-4"
+    - Replace dots with dashes: "gpt-5.6-terra" -> "gpt-5-6-terra"
     - Replace spaces with dashes: "deep research" -> "deep-research"
     - Convert to lowercase
     """
@@ -77,7 +77,7 @@ def parse_oai_model(model_id: str) -> Tuple[str, Optional[str]]:
     Parse OAI model ID to (mode, model).
 
     Args:
-        model_id: OpenAI-format model ID (e.g., "perplexity-search", "gpt-5-4-thinking")
+        model_id: OpenAI-format model ID (e.g., "perplexity-search", "gpt-5-6-terra-thinking")
 
     Returns:
         Tuple of (mode, model) where model can be None for default models
@@ -115,12 +115,14 @@ def generate_oai_models() -> List[Dict[str, Any]]:
                 continue
             seen_ids.add(oai_id)
 
-            models.append({
-                "id": oai_id,
-                "object": "model",
-                "created": created_timestamp,
-                "owned_by": "perplexity"
-            })
+            models.append(
+                {
+                    "id": oai_id,
+                    "object": "model",
+                    "created": created_timestamp,
+                    "owned_by": "perplexity",
+                }
+            )
 
     return models
 
@@ -140,6 +142,7 @@ def create_oai_error_response(message: str, error_type: str) -> Dict[str, Any]:
 
 
 # ==================== Validation Functions ====================
+
 
 def validate_search_params(
     mode: str, model: Optional[str], sources: list, own_account: bool = False
@@ -161,7 +164,9 @@ def validate_search_params(
     """
     # Validate mode - guard against None SEARCH_MODES
     if SEARCH_MODES is None or mode not in SEARCH_MODES:
-        valid_modes = ', '.join(SEARCH_MODES) if SEARCH_MODES else "auto, pro, reasoning, deep research"
+        valid_modes = (
+            ", ".join(SEARCH_MODES) if SEARCH_MODES else "auto, pro, reasoning, deep research"
+        )
         raise ValidationError(f"Invalid mode '{mode}'. Must be one of: {valid_modes}")
 
     # Validate model - guard against None MODEL_MAPPINGS

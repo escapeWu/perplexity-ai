@@ -13,7 +13,9 @@ from perplexity.config import (
     ENDPOINT_AUTH_SIGNIN,
     ENDPOINT_SSE_ASK,
     ENDPOINT_UPLOAD_URL,
+    MODEL_MAPPINGS,
 )
+
 from .emailnator import Emailnator
 
 
@@ -125,28 +127,7 @@ class Client(AsyncMixin):
             "deep research",
         ], 'Search modes -> ["auto", "pro", "reasoning", "deep research"]'
         assert (
-            model
-            in {
-                "auto": [None],
-                "pro": [
-                    None,
-                    "sonar",
-                    "gpt-5.4",
-                    "claude-4.6-sonnet",
-                    "gemini-3.1-pro",
-                ],
-                "reasoning": [
-                    None,
-                    "gpt-5.4-thinking",
-                    "claude-4.6-sonnet-thinking",
-                    "gemini-3.1-pro",
-                    "kimi-k2-thinking",
-                ],
-                "deep research": [None],
-                "copilot": [None, "gemini-3.1-pro", "kimi-k2-thinking"],
-            }[mode]
-            if self.own
-            else True
+            model in MODEL_MAPPINGS[mode] if self.own else True
         ), "Invalid model for selected mode"
         assert all(
             [source in ("web", "scholar", "social") for source in sources]
@@ -220,24 +201,7 @@ class Client(AsyncMixin):
                 "language": language,
                 "last_backend_uuid": (follow_up["backend_uuid"] if follow_up else None),
                 "mode": "concise" if mode == "auto" else "copilot",
-                "model_preference": {
-                    "auto": {None: "turbo"},
-                     "pro": {
-                        None: "pplx_pro",
-                        "sonar": "experimental",
-                        "gpt-5.4": "gpt54",
-                        "claude-4.6-sonnet": "claude46sonnet",
-                        "gemini-3.1-pro": "gemini31pro_high",
-                    },
-                    "reasoning": {
-                        None: "pplx_reasoning",
-                        "gpt-5.4-thinking": "gpt54_thinking",
-                        "claude-4.6-sonnet-thinking": "claude46sonnetthinking",
-                        "gemini-3.1-pro": "gemini31pro_high",
-                        "kimi-k2-thinking": "kimik2thinking",
-                    },
-                    "deep research": {None: "pplx_alpha"},
-                }[mode][model],
+                "model_preference": MODEL_MAPPINGS[mode][model],
                 "source": "default",
                 "sources": sources,
                 "version": "2.18",

@@ -79,14 +79,15 @@ def _read_int_env(name: str, default: int, min_value: int = MIN_TIMEOUT_SECONDS)
     try:
         value = int(raw)
     except (TypeError, ValueError):
-        _logger.warning(
-            "Ignoring %s=%r: not an integer; using default %d", name, raw, default
-        )
+        _logger.warning("Ignoring %s=%r: not an integer; using default %d", name, raw, default)
         return default
     if value < min_value:
         _logger.warning(
             "Ignoring %s=%d: below minimum %ds; using default %d",
-            name, value, min_value, default,
+            name,
+            value,
+            min_value,
+            default,
         )
         return default
     return value
@@ -102,9 +103,7 @@ SEARCH_TIMEOUT: int = _read_int_env("PPLX_SEARCH_TIMEOUT", DEFAULT_SEARCH_TIMEOU
 DEEP_RESEARCH_TIMEOUT: int = _read_int_env(
     "PPLX_DEEP_RESEARCH_TIMEOUT", DEFAULT_DEEP_RESEARCH_TIMEOUT
 )
-FILE_UPLOAD_TIMEOUT: int = _read_int_env(
-    "PPLX_FILE_UPLOAD_TIMEOUT", DEFAULT_FILE_UPLOAD_TIMEOUT
-)
+FILE_UPLOAD_TIMEOUT: int = _read_int_env("PPLX_FILE_UPLOAD_TIMEOUT", DEFAULT_FILE_UPLOAD_TIMEOUT)
 
 
 def get_search_timeout(mode: str) -> int:
@@ -116,6 +115,7 @@ def get_search_timeout(mode: str) -> int:
     if mode == "deep research":
         return DEEP_RESEARCH_TIMEOUT
     return SEARCH_TIMEOUT
+
 
 # Endpoints
 ENDPOINT_AUTH_SESSION = f"{API_BASE_URL}/api/auth/session"
@@ -140,21 +140,27 @@ SEARCH_SOURCES = ["web", "scholar", "social"]
 SEARCH_LANGUAGES = ["en-US", "en-GB", "pt-BR", "es-ES", "fr-FR", "de-DE", "zh-CN"]
 
 # Model Mappings
-MODEL_MAPPINGS: Dict[str, Dict[str, str]] = {
+MODEL_MAPPINGS: Dict[str, Dict[Optional[str], str]] = {
     "auto": {None: "turbo"},
     "pro": {
         None: "pplx_pro",
+        "sonar-2": "experimental",
+        # Backward-compatible alias for existing clients.
         "sonar": "experimental",
-        "gpt-5.4": "gpt54",
-        "claude-4.6-sonnet": "claude46sonnet",
+        "gpt-5.6-terra": "gpt56_terra",
+        "claude-sonnet-5": "claude50sonnet",
         "gemini-3.1-pro": "gemini31pro_high",
+        "grok-4.5": "grok45low",
     },
     "reasoning": {
         None: "pplx_reasoning",
-        "gpt-5.4-thinking": "gpt54_thinking",
-        "claude-4.6-sonnet-thinking": "claude46sonnetthinking",
+        "gpt-5.6-terra-thinking": "gpt56_terra_thinking",
+        "claude-sonnet-5-thinking": "claude50sonnetthinking",
         "gemini-3.1-pro": "gemini31pro_high",
-        "kimi-k2-thinking": "kimik2thinking",
+        "kimi-k3-thinking": "kimik3thinking",
+        "glm-5.2": "glm_5_2",
+        "grok-4.5-thinking": "grok45medium",
+        "nemotron-3-ultra": "nv_nemotron_3_ultra",
     },
     "deep research": {None: "pplx_alpha"},
 }
@@ -218,26 +224,108 @@ EMAILNATOR_HEADERS = {
 }
 
 # Allowed file extensions for upload (documents, code, images, audio, video)
-ALLOWED_FILE_EXTENSIONS: frozenset = frozenset({
-    # Documents
-    ".pdf", ".doc", ".docx", ".pptx", ".xlsx", ".csv", ".txt", ".text",
-    ".md", ".markdown", ".rmd", ".latex", ".tex",
-    # Code & Config
-    ".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".rs", ".java", ".cpp",
-    ".c", ".cxx", ".h", ".hpp", ".cs", ".rb", ".php", ".pl", ".pm",
-    ".swift", ".kt", ".kts", ".scala", ".dart", ".lua", ".r", ".R",
-    ".m", ".sh", ".bash", ".zsh", ".fish", ".ksh", ".bat", ".sql",
-    ".html", ".htm", ".css", ".less", ".xml", ".json", ".yaml", ".yml",
-    ".toml", ".ini", ".conf", ".config", ".in", ".log",
-    ".coffee", ".diff", ".ipynb",
-    # Images
-    ".jpg", ".jpeg", ".jpe", ".jp2", ".png", ".gif", ".bmp",
-    ".tiff", ".tif", ".svg", ".webp", ".ico", ".avif", ".heic", ".heif",
-    # Audio
-    ".mp3", ".wav", ".aiff", ".ogg", ".flac",
-    # Video
-    ".mp4", ".mpeg", ".mpg", ".mov", ".avi", ".flv", ".webm", ".wmv", ".3gp",
-})
+ALLOWED_FILE_EXTENSIONS: frozenset = frozenset(
+    {
+        # Documents
+        ".pdf",
+        ".doc",
+        ".docx",
+        ".pptx",
+        ".xlsx",
+        ".csv",
+        ".txt",
+        ".text",
+        ".md",
+        ".markdown",
+        ".rmd",
+        ".latex",
+        ".tex",
+        # Code & Config
+        ".py",
+        ".js",
+        ".ts",
+        ".jsx",
+        ".tsx",
+        ".go",
+        ".rs",
+        ".java",
+        ".cpp",
+        ".c",
+        ".cxx",
+        ".h",
+        ".hpp",
+        ".cs",
+        ".rb",
+        ".php",
+        ".pl",
+        ".pm",
+        ".swift",
+        ".kt",
+        ".kts",
+        ".scala",
+        ".dart",
+        ".lua",
+        ".r",
+        ".R",
+        ".m",
+        ".sh",
+        ".bash",
+        ".zsh",
+        ".fish",
+        ".ksh",
+        ".bat",
+        ".sql",
+        ".html",
+        ".htm",
+        ".css",
+        ".less",
+        ".xml",
+        ".json",
+        ".yaml",
+        ".yml",
+        ".toml",
+        ".ini",
+        ".conf",
+        ".config",
+        ".in",
+        ".log",
+        ".coffee",
+        ".diff",
+        ".ipynb",
+        # Images
+        ".jpg",
+        ".jpeg",
+        ".jpe",
+        ".jp2",
+        ".png",
+        ".gif",
+        ".bmp",
+        ".tiff",
+        ".tif",
+        ".svg",
+        ".webp",
+        ".ico",
+        ".avif",
+        ".heic",
+        ".heif",
+        # Audio
+        ".mp3",
+        ".wav",
+        ".aiff",
+        ".ogg",
+        ".flac",
+        # Video
+        ".mp4",
+        ".mpeg",
+        ".mpg",
+        ".mov",
+        ".avi",
+        ".flv",
+        ".webm",
+        ".wmv",
+        ".3gp",
+    }
+)
 
 # Retry Configuration
 RETRY_MAX_ATTEMPTS = 3

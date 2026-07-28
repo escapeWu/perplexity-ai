@@ -10,11 +10,11 @@
 """
 
 import os
-import pytest
-import httpx
 from pathlib import Path
 from typing import Any, Dict
 
+import httpx
+import pytest
 from dotenv import load_dotenv
 
 # 加载 .env 文件
@@ -46,10 +46,7 @@ class TestOAIAuthentication:
     def test_models_without_auth_rejected(self) -> None:
         """测试无认证请求被拒绝。"""
         print("console.log -> 测试无认证访问 /v1/models")
-        response = httpx.get(
-            f"{OAI_BASE_URL}/v1/models",
-            timeout=REQUEST_TIMEOUT
-        )
+        response = httpx.get(f"{OAI_BASE_URL}/v1/models", timeout=REQUEST_TIMEOUT)
         assert response.status_code == 401
         data = response.json()
         assert "error" in data
@@ -61,7 +58,7 @@ class TestOAIAuthentication:
         response = httpx.get(
             f"{OAI_BASE_URL}/v1/models",
             headers=get_auth_headers("invalid-token"),
-            timeout=REQUEST_TIMEOUT
+            timeout=REQUEST_TIMEOUT,
         )
         assert response.status_code == 401
         data = response.json()
@@ -72,9 +69,7 @@ class TestOAIAuthentication:
         """测试有效 token 被接受。"""
         print("console.log -> 测试有效 token 访问 /v1/models")
         response = httpx.get(
-            f"{OAI_BASE_URL}/v1/models",
-            headers=get_auth_headers(),
-            timeout=REQUEST_TIMEOUT
+            f"{OAI_BASE_URL}/v1/models", headers=get_auth_headers(), timeout=REQUEST_TIMEOUT
         )
         assert response.status_code == 200
         print("console.log -> 有效 token 认证成功")
@@ -87,9 +82,7 @@ class TestOAIModels:
         """测试 /v1/models 返回正确的数据结构。"""
         print("console.log -> 测试 /v1/models 端点")
         response = httpx.get(
-            f"{OAI_BASE_URL}/v1/models",
-            headers=get_auth_headers(),
-            timeout=REQUEST_TIMEOUT
+            f"{OAI_BASE_URL}/v1/models", headers=get_auth_headers(), timeout=REQUEST_TIMEOUT
         )
         assert response.status_code == 200
         data = response.json()
@@ -115,9 +108,7 @@ class TestOAIModels:
         """测试模型列表包含预期的模型。"""
         print("console.log -> 验证预期模型存在")
         response = httpx.get(
-            f"{OAI_BASE_URL}/v1/models",
-            headers=get_auth_headers(),
-            timeout=REQUEST_TIMEOUT
+            f"{OAI_BASE_URL}/v1/models", headers=get_auth_headers(), timeout=REQUEST_TIMEOUT
         )
         data = response.json()
         model_ids = [m["id"] for m in data["data"]]
@@ -127,18 +118,29 @@ class TestOAIModels:
             "perplexity-search",
             "perplexity-thinking",
             "perplexity-deepsearch",
-            "gpt-5-4",
-            "gpt-5-4-thinking",
+            "sonar-2",
+            "gpt-5-6-terra",
+            "gpt-5-6-terra-thinking",
+            "claude-sonnet-5",
+            "claude-sonnet-5-thinking",
+            "gemini-3-1-pro",
+            "gemini-3-1-pro-thinking",
+            "kimi-k3-thinking",
+            "glm-5-2-thinking",
+            "grok-4-5",
+            "grok-4-5-thinking",
+            "nemotron-3-ultra-thinking",
         ]
         for model_id in expected_models:
             assert model_id in model_ids, f"没有找到预期模型 '{model_id}'"
             print(f"console.log -> 找到模型: {model_id}")
 
         unexpected_models = [
-            "gpt-5-2",
-            "gpt-5-2-thinking",
-            "grok-4-1",
-            "grok-4-1-thinking",
+            "gpt-5-4",
+            "gpt-5-4-thinking",
+            "claude-4-6-sonnet",
+            "claude-4-6-sonnet-thinking",
+            "kimi-k2-thinking",
         ]
         for model_id in unexpected_models:
             assert model_id not in model_ids, f"不应再暴露旧模型 '{model_id}'"
@@ -155,7 +157,7 @@ class TestOAIChatCompletions:
             f"{OAI_BASE_URL}/v1/chat/completions",
             headers=get_auth_headers(),
             json={"messages": [{"role": "user", "content": "Hello"}]},
-            timeout=REQUEST_TIMEOUT
+            timeout=REQUEST_TIMEOUT,
         )
         assert response.status_code == 400
         data = response.json()
@@ -169,7 +171,7 @@ class TestOAIChatCompletions:
             f"{OAI_BASE_URL}/v1/chat/completions",
             headers=get_auth_headers(),
             json={"model": "perplexity-search"},
-            timeout=REQUEST_TIMEOUT
+            timeout=REQUEST_TIMEOUT,
         )
         assert response.status_code == 400
         data = response.json()
@@ -184,9 +186,9 @@ class TestOAIChatCompletions:
             headers=get_auth_headers(),
             json={
                 "model": "invalid-model-name",
-                "messages": [{"role": "user", "content": "Hello"}]
+                "messages": [{"role": "user", "content": "Hello"}],
             },
-            timeout=REQUEST_TIMEOUT
+            timeout=REQUEST_TIMEOUT,
         )
         assert response.status_code == 400
         data = response.json()
@@ -203,9 +205,9 @@ class TestOAIChatCompletions:
             json={
                 "model": "perplexity-search",
                 "messages": [{"role": "user", "content": TEST_QUESTION}],
-                "stream": False
+                "stream": False,
             },
-            timeout=REQUEST_TIMEOUT
+            timeout=REQUEST_TIMEOUT,
         )
         assert response.status_code == 200
         data = response.json()
@@ -234,7 +236,11 @@ class TestOAIChatCompletions:
 
         answer = choice["message"]["content"]
         print(f"console.log -> 非流式补全成功")
-        print(f"console.log -> 回答预览: {answer[:200]}..." if len(answer) > 200 else f"console.log -> 回答: {answer}")
+        print(
+            f"console.log -> 回答预览: {answer[:200]}..."
+            if len(answer) > 200
+            else f"console.log -> 回答: {answer}"
+        )
 
     def test_chat_completions_stream(self) -> None:
         """测试流式聊天补全。"""
@@ -247,9 +253,9 @@ class TestOAIChatCompletions:
             json={
                 "model": "perplexity-search",
                 "messages": [{"role": "user", "content": TEST_QUESTION}],
-                "stream": True
+                "stream": True,
             },
-            timeout=REQUEST_TIMEOUT
+            timeout=REQUEST_TIMEOUT,
         ) as response:
             assert response.status_code == 200
             assert "text/event-stream" in response.headers.get("content-type", "")
@@ -268,6 +274,7 @@ class TestOAIChatCompletions:
 
                 if line.startswith("data: "):
                     import json
+
                     chunk_data = json.loads(line[6:])
                     chunks_received += 1
 
@@ -286,7 +293,11 @@ class TestOAIChatCompletions:
 
             full_content = "".join(content_chunks)
             print(f"console.log -> 流式补全成功，收到 {chunks_received} 个 chunks")
-            print(f"console.log -> 完整回答预览: {full_content[:200]}..." if len(full_content) > 200 else f"console.log -> 完整回答: {full_content}")
+            print(
+                f"console.log -> 完整回答预览: {full_content[:200]}..."
+                if len(full_content) > 200
+                else f"console.log -> 完整回答: {full_content}"
+            )
 
 
 class TestOAIChatCompletionsWithArrayContent:
@@ -300,16 +311,18 @@ class TestOAIChatCompletionsWithArrayContent:
             headers=get_auth_headers(),
             json={
                 "model": "perplexity-search",
-                "messages": [{
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": "What is"},
-                        {"type": "text", "text": " the capital of France?"}
-                    ]
-                }],
-                "stream": False
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "What is"},
+                            {"type": "text", "text": " the capital of France?"},
+                        ],
+                    }
+                ],
+                "stream": False,
             },
-            timeout=REQUEST_TIMEOUT
+            timeout=REQUEST_TIMEOUT,
         )
         assert response.status_code == 200
         data = response.json()
@@ -331,9 +344,9 @@ class TestOAIMultipleModels:
             json={
                 "model": model,
                 "messages": [{"role": "user", "content": TEST_QUESTION}],
-                "stream": False
+                "stream": False,
             },
-            timeout=REQUEST_TIMEOUT * 3  # research/reasoning 可能需要更长时间
+            timeout=REQUEST_TIMEOUT * 3,  # research/reasoning 可能需要更长时间
         )
         assert response.status_code == 200, f"模型 {model} 请求失败: {response.text}"
         data = response.json()
@@ -348,7 +361,11 @@ class TestOAIMultipleModels:
         answer = data["choices"][0]["message"]["content"]
         assert len(answer) > 0, f"模型 {model} 返回空回答"
         print(f"console.log -> 模型 {model} 非流式补全成功")
-        print(f"console.log -> 回答预览: {answer[:300]}..." if len(answer) > 300 else f"console.log -> 回答: {answer}")
+        print(
+            f"console.log -> 回答预览: {answer[:300]}..."
+            if len(answer) > 300
+            else f"console.log -> 回答: {answer}"
+        )
 
     @pytest.mark.parametrize("model", TEST_MODELS)
     def test_chat_completions_stream_multiple_models(self, model: str) -> None:
@@ -362,9 +379,9 @@ class TestOAIMultipleModels:
             json={
                 "model": model,
                 "messages": [{"role": "user", "content": TEST_QUESTION}],
-                "stream": True
+                "stream": True,
             },
-            timeout=REQUEST_TIMEOUT * 3
+            timeout=REQUEST_TIMEOUT * 3,
         ) as response:
             assert response.status_code == 200, f"模型 {model} 请求失败"
             assert "text/event-stream" in response.headers.get("content-type", "")
@@ -383,6 +400,7 @@ class TestOAIMultipleModels:
 
                 if line.startswith("data: "):
                     import json
+
                     chunk_data = json.loads(line[6:])
                     chunks_received += 1
 
@@ -399,4 +417,8 @@ class TestOAIMultipleModels:
 
             full_content = "".join(content_chunks)
             print(f"console.log -> 模型 {model} 流式补全成功，收到 {chunks_received} 个 chunks")
-            print(f"console.log -> 完整回答预览: {full_content[:300]}..." if len(full_content) > 300 else f"console.log -> 完整回答: {full_content}")
+            print(
+                f"console.log -> 完整回答预览: {full_content[:300]}..."
+                if len(full_content) > 300
+                else f"console.log -> 完整回答: {full_content}"
+            )
