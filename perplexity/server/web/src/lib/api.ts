@@ -302,7 +302,8 @@ function cleanMessagesForRequest(
 
 export async function chatCompletion(
   request: ChatCompletionRequest,
-  apiToken: string
+  apiToken: string,
+  signal?: AbortSignal
 ): Promise<ChatCompletionResponse> {
   const cleanedRequest = {
     ...request,
@@ -316,6 +317,7 @@ export async function chatCompletion(
       Authorization: `Bearer ${apiToken}`,
     },
     body: JSON.stringify(cleanedRequest),
+    signal,
   })
   if (!resp.ok) {
     const error = await resp.json().catch(() => ({ error: { message: resp.statusText } }))
@@ -326,7 +328,8 @@ export async function chatCompletion(
 
 export async function* chatCompletionStream(
   request: ChatCompletionRequest,
-  apiToken: string
+  apiToken: string,
+  signal?: AbortSignal
 ): AsyncGenerator<ChatCompletionChunk, void, unknown> {
   const cleanedRequest = {
     ...request,
@@ -340,6 +343,7 @@ export async function* chatCompletionStream(
       Authorization: `Bearer ${apiToken}`,
     },
     body: JSON.stringify(cleanedRequest),
+    signal,
   })
 
   if (!resp.ok) {
@@ -355,24 +359,33 @@ export async function* chatCompletionStream(
   const decoder = new TextDecoder()
   let buffer = ''
 
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
 
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() || ''
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
 
-    for (const line of lines) {
-      const trimmed = line.trim()
-      if (!trimmed || !trimmed.startsWith('data: ')) continue
-      const data = trimmed.slice(6)
-      if (data === '[DONE]') return
-      try {
-        yield JSON.parse(data) as ChatCompletionChunk
-      } catch {
-        // Skip invalid JSON
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (!trimmed || !trimmed.startsWith('data: ')) continue
+        const data = trimmed.slice(6)
+        if (data === '[DONE]') return
+        try {
+          yield JSON.parse(data) as ChatCompletionChunk
+        } catch {
+          // Skip invalid JSON
+        }
       }
     }
+  } finally {
+    try {
+      await reader.cancel()
+    } catch {
+      // The fetch may already have been aborted.
+    }
+    reader.releaseLock()
   }
 }

@@ -19,6 +19,7 @@
 <img width="1894" height="989" alt="image" src="https://github.com/user-attachments/assets/4a495432-8305-4820-8b4a-d7e54986ba45" />
 
 ## 更新记录
++ **2026-07-29**：v1.10.1 — 确保同步流式响应可靠关闭，将用户信息网络请求移出号池锁，采用无饥饿的平滑加权轮询调度，同步运行依赖，并让 Playground 的停止操作真正取消活跃请求。
 + **2026-07-28**：v1.10.0 — 新增当前全部非 Max 模型（Sonar 2、GPT-5.6 Terra、Gemini 3.1 Pro、Claude Sonnet 5、Kimi K3、GLM 5.2、Grok 4.5、Nemotron 3 Ultra），集中维护模型映射，并同步 MCP/OpenAI 模型发现、测试与文档。
 + **2026-05-21**：v1.9.5 — 新增 Agent 友好的 MCP 快捷工具，覆盖快速问答、网页搜索、推理和深度研究，并完善工具说明与测试。
 + **2026-03-10**：v1.9.4 — 收敛支持模型集合：新增 GPT-5.4 / GPT-5.4 Thinking，移除 GPT-5.2 与 Grok 4.1 相关变体，并同步 MCP、OpenAI 模型暴露、测试与文档。

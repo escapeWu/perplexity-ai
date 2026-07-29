@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import {
   ChatMessage,
   InputFilePart,
@@ -22,16 +22,33 @@ export interface ChatState {
 }
 
 /** Read a File as a base64 data-URL and return only the base64 payload. */
-function readFileAsBase64(file: File): Promise<string> {
+function readFileAsBase64(file: File, signal: AbortSignal): Promise<string> {
   return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException('The operation was aborted', 'AbortError'))
+      return
+    }
+
     const reader = new FileReader()
+    const cleanup = () => signal.removeEventListener('abort', handleAbort)
+    const handleAbort = () => reader.abort()
+
     reader.onload = () => {
+      cleanup()
       const result = reader.result as string
       // Strip the "data:<mime>;base64," prefix
       const base64 = result.includes(',') ? result.split(',')[1] : result
       resolve(base64)
     }
-    reader.onerror = () => reject(new Error(`Failed to read file: ${file.name}`))
+    reader.onerror = () => {
+      cleanup()
+      reject(new Error(`Failed to read file: ${file.name}`))
+    }
+    reader.onabort = () => {
+      cleanup()
+      reject(new DOMException('The operation was aborted', 'AbortError'))
+    }
+    signal.addEventListener('abort', handleAbort, { once: true })
     reader.readAsDataURL(file)
   })
 }
@@ -47,6 +64,13 @@ export function useChat() {
   const [streamEnabled, setStreamEnabled] = useState(true)
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const abortControllerRef = useRef<AbortController | null>(null)
+
+  useEffect(
+    () => () => {
+      abortControllerRef.current?.abort()
+    },
+    []
+  )
 
   const handleSetSelectedModel = useCallback((model: string) => {
     setSelectedModel(model)
@@ -105,35 +129,38 @@ export function useChat() {
       if (!content.trim() && pendingFiles.length === 0) return
       if (!apiToken) return
 
-      // Build content: array when files are attached, plain string otherwise
-      let messageContent: ChatMessage['content']
-      if (pendingFiles.length > 0) {
-        const fileParts: InputFilePart[] = await Promise.all(
-          pendingFiles.map(async (file) => ({
-            type: 'input_file' as const,
-            filename: file.name,
-            file_data: await readFileAsBase64(file),
-          }))
-        )
-        const parts: ChatMessage['content'] = []
-        if (content.trim()) {
-          ;(parts as Array<unknown>).push({ type: 'text', text: content.trim() })
-        }
-        ;(parts as Array<unknown>).push(...fileParts)
-        messageContent = parts as ChatMessage['content']
-      } else {
-        messageContent = content.trim()
-      }
-
-      const userMessage: ChatMessage = { role: 'user', content: messageContent }
-      setMessages((prev) => [...prev, userMessage])
-      setPendingFiles([])
+      abortControllerRef.current?.abort()
+      const abortController = new AbortController()
+      abortControllerRef.current = abortController
       setIsLoading(true)
       setError(null)
 
-      const allMessages = [...messages, userMessage]
-
       try {
+        // Build content: array when files are attached, plain string otherwise
+        let messageContent: ChatMessage['content']
+        if (pendingFiles.length > 0) {
+          const fileParts: InputFilePart[] = await Promise.all(
+            pendingFiles.map(async (file) => ({
+              type: 'input_file' as const,
+              filename: file.name,
+              file_data: await readFileAsBase64(file, abortController.signal),
+            }))
+          )
+          const parts: ChatMessage['content'] = []
+          if (content.trim()) {
+            ;(parts as Array<unknown>).push({ type: 'text', text: content.trim() })
+          }
+          ;(parts as Array<unknown>).push(...fileParts)
+          messageContent = parts as ChatMessage['content']
+        } else {
+          messageContent = content.trim()
+        }
+
+        const userMessage: ChatMessage = { role: 'user', content: messageContent }
+        setMessages((prev) => [...prev, userMessage])
+        setPendingFiles([])
+        const allMessages = [...messages, userMessage]
+
         if (streamEnabled) {
           setIsStreaming(true)
           const assistantMessage: ChatMessage = { role: 'assistant', content: '', sources: [] }
@@ -141,7 +168,8 @@ export function useChat() {
 
           const stream = chatCompletionStream(
             { model: selectedModel, messages: allMessages },
-            apiToken
+            apiToken,
+            abortController.signal
           )
 
           let streamSources: Source[] = []
@@ -179,13 +207,20 @@ export function useChat() {
         } else {
           const response = await chatCompletion(
             { model: selectedModel, messages: allMessages },
-            apiToken
+            apiToken,
+            abortController.signal
           )
           const assistantContent = response.choices[0]?.message?.content || ''
           const sources = response.sources || []
           setMessages((prev) => [...prev, { role: 'assistant', content: assistantContent, sources }])
         }
       } catch (err) {
+        if (
+          abortController.signal.aborted ||
+          (err instanceof DOMException && err.name === 'AbortError')
+        ) {
+          return
+        }
         const errorMessage = err instanceof Error ? err.message : 'Failed to send message'
         setError(errorMessage)
         setMessages((prev) => [
@@ -193,8 +228,11 @@ export function useChat() {
           { role: 'assistant', content: `Error: ${errorMessage}` },
         ])
       } finally {
-        setIsLoading(false)
-        setIsStreaming(false)
+        if (abortControllerRef.current === abortController) {
+          abortControllerRef.current = null
+          setIsLoading(false)
+          setIsStreaming(false)
+        }
       }
     },
     [apiToken, messages, selectedModel, streamEnabled, pendingFiles]
@@ -206,8 +244,9 @@ export function useChat() {
   }, [])
 
   const stopStreaming = useCallback(() => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort()
+    const abortController = abortControllerRef.current
+    if (abortController) {
+      abortController.abort()
       abortControllerRef.current = null
     }
     setIsStreaming(false)

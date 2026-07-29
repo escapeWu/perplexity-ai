@@ -15,7 +15,15 @@ class RecordingSyncSession:
 
     def post(self, url: str, **kwargs: Any) -> object:
         self.requests.append({"url": url, **kwargs})
-        return object()
+        return EmptySyncResponse()
+
+
+class EmptySyncResponse:
+    def iter_lines(self, delimiter: bytes):
+        return iter(())
+
+    def close(self) -> None:
+        pass
 
 
 class RecordingAsyncSession:
@@ -43,7 +51,8 @@ def test_sync_client_uses_canonical_model_mapping(mode: str, model: str | None, 
     client.copilot = float("inf")
     client.file_upload = float("inf")
 
-    client.search("model mapping probe", mode=mode, model=model, stream=True)
+    stream = client.search("model mapping probe", mode=mode, model=model, stream=True)
+    list(stream)
 
     assert session.requests[0]["json"]["params"]["model_preference"] == slug
 

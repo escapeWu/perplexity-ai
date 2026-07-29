@@ -41,6 +41,7 @@ class ClientWrapper:
         self.available_after: float = 0
         self.request_count = 0
         self.weight = self.DEFAULT_WEIGHT  # Higher weight = higher priority
+        self.scheduler_current = 0  # Smooth weighted round-robin accumulator
         self.pro_fail_count = 0  # Track pro-specific failures
         self.enabled = True  # Whether this client is enabled for use
         self.state = "unknown"  # Token state: "normal", "offline", "downgrade", "unknown"
@@ -411,6 +412,7 @@ class ClientPool:
             wrapper.pro_fail_count = 0
             wrapper.available_after = 0
             wrapper.weight = ClientWrapper.DEFAULT_WEIGHT
+            wrapper.scheduler_current = 0
             return {"status": "ok", "message": f"Client '{client_id}' reset successfully"}
 
     def get_client(self) -> Tuple[Optional[str], Optional[Client]]:
@@ -435,30 +437,20 @@ class ClientPool:
             ]
 
             if available_wrappers:
-                # Find the max weight among available clients
-                max_weight = max(w.weight for w in available_wrappers)
+                # Smooth weighted round-robin gives every healthy client service
+                # proportional to its weight without starving lower-weight clients.
+                total_weight = sum(wrapper.weight for wrapper in available_wrappers)
+                selected = available_wrappers[0]
+                for wrapper in available_wrappers:
+                    wrapper.scheduler_current += wrapper.weight
+                    if wrapper.scheduler_current > selected.scheduler_current:
+                        selected = wrapper
 
-                # Get clients with the highest weight (for weighted selection)
-                top_weight_clients = [w for w in available_wrappers if w.weight == max_weight]
-
-                if len(top_weight_clients) == 1:
-                    # Only one client with highest weight, use it
-                    return top_weight_clients[0].id, top_weight_clients[0].client
-
-                # Multiple clients with same weight - use round-robin among them
-                # Find the next client in rotation order that's in our top weight list
-                top_weight_ids = {w.id for w in top_weight_clients}
-                start_index = self._index
-
-                for _ in range(len(self._rotation_order)):
-                    client_id = self._rotation_order[self._index]
-                    self._index = (self._index + 1) % len(self._rotation_order)
-
-                    if client_id in top_weight_ids:
-                        return client_id, self.clients[client_id].client
-
-                # Fallback (shouldn't happen): return first top weight client
-                return top_weight_clients[0].id, top_weight_clients[0].client
+                selected.scheduler_current -= total_weight
+                self._index = (self._rotation_order.index(selected.id) + 1) % len(
+                    self._rotation_order
+                )
+                return selected.id, selected.client
 
             # No available clients - return the one that will be available soonest
             soonest_wrapper = min(
@@ -544,7 +536,7 @@ class ClientPool:
             wrapper = self.clients.get(client_id)
             if not wrapper:
                 return {"status": "error", "message": f"Client '{client_id}' not found"}
-            return {"status": "ok", "data": wrapper.get_user_info()}
+        return {"status": "ok", "data": wrapper.get_user_info()}
 
     def get_client_state(self, client_id: str) -> str:
         """
@@ -586,10 +578,12 @@ class ClientPool:
             Dict with client_id -> user_info mapping
         """
         with self._lock:
-            result = {}
-            for client_id, wrapper in self.clients.items():
-                result[client_id] = wrapper.get_user_info()
-            return {"status": "ok", "data": result}
+            clients = list(self.clients.items())
+
+        result = {
+            client_id: wrapper.get_user_info() for client_id, wrapper in clients
+        }
+        return {"status": "ok", "data": result}
 
     # ==================== Heartbeat Methods ====================
 

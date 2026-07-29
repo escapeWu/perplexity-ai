@@ -328,6 +328,32 @@ class TestClientPool:
 
     @patch("pathlib.Path.exists", return_value=False)
     @patch("perplexity.server.client_pool.Client")
+    def test_get_client_smooth_weighted_round_robin(
+        self, mock_client_class, mock_path_exists
+    ):
+        """Lower-weight healthy clients receive their proportional share."""
+        from perplexity.server.client_pool import ClientPool
+
+        with patch.dict(os.environ, {}, clear=True):
+            pool = ClientPool()
+
+        pool.add_client("user1", "csrf1", "session1")
+        pool.clients["anonymous"].weight = 100
+        pool.clients["user1"].weight = 50
+
+        ids = [pool.get_client()[0] for _ in range(6)]
+
+        assert ids == [
+            "anonymous",
+            "user1",
+            "anonymous",
+            "anonymous",
+            "user1",
+            "anonymous",
+        ]
+
+    @patch("pathlib.Path.exists", return_value=False)
+    @patch("perplexity.server.client_pool.Client")
     def test_get_client_skips_unavailable(self, mock_client_class, mock_path_exists):
         """Test that get_client skips clients in backoff."""
         from perplexity.server.client_pool import ClientPool
@@ -440,6 +466,78 @@ class TestClientPool:
         earliest = pool.get_earliest_available_time()
 
         assert earliest is None
+
+    @patch("pathlib.Path.exists", return_value=False)
+    @patch("perplexity.server.client_pool.Client")
+    def test_get_client_user_info_releases_pool_lock_before_network(
+        self, mock_client_class, mock_path_exists
+    ):
+        """A slow user-info request must not block other pool operations."""
+        from perplexity.server.client_pool import ClientPool
+
+        with patch.dict(os.environ, {}, clear=True):
+            pool = ClientPool()
+
+        started = threading.Event()
+        release_request = threading.Event()
+
+        def slow_user_info():
+            started.set()
+            release_request.wait(timeout=2)
+            return {"email": "test@example.com"}
+
+        pool.clients["anonymous"].get_user_info = MagicMock(side_effect=slow_user_info)
+        thread = threading.Thread(target=pool.get_client_user_info, args=("anonymous",))
+        thread.start()
+        assert started.wait(timeout=1)
+
+        acquired = False
+        try:
+            acquired = pool._lock.acquire(timeout=0.2)
+            assert acquired, "pool lock was held during the network request"
+        finally:
+            if acquired:
+                pool._lock.release()
+            release_request.set()
+            thread.join(timeout=2)
+
+        assert not thread.is_alive()
+
+    @patch("pathlib.Path.exists", return_value=False)
+    @patch("perplexity.server.client_pool.Client")
+    def test_get_all_clients_user_info_releases_pool_lock_before_network(
+        self, mock_client_class, mock_path_exists
+    ):
+        """Bulk user-info requests also run from a lock-free snapshot."""
+        from perplexity.server.client_pool import ClientPool
+
+        with patch.dict(os.environ, {}, clear=True):
+            pool = ClientPool()
+
+        started = threading.Event()
+        release_request = threading.Event()
+
+        def slow_user_info():
+            started.set()
+            release_request.wait(timeout=2)
+            return {"email": "test@example.com"}
+
+        pool.clients["anonymous"].get_user_info = MagicMock(side_effect=slow_user_info)
+        thread = threading.Thread(target=pool.get_all_clients_user_info)
+        thread.start()
+        assert started.wait(timeout=1)
+
+        acquired = False
+        try:
+            acquired = pool._lock.acquire(timeout=0.2)
+            assert acquired, "pool lock was held during the network request"
+        finally:
+            if acquired:
+                pool._lock.release()
+            release_request.set()
+            thread.join(timeout=2)
+
+        assert not thread.is_alive()
 
     @patch("pathlib.Path.exists", return_value=False)
     @patch("perplexity.server.client_pool.Client")

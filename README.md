@@ -22,6 +22,7 @@ An unofficial Python API for Perplexity.ai that exposes search capabilities via 
 <img width="1894" height="989" alt="image" src="https://github.com/user-attachments/assets/4a495432-8305-4820-8b4a-d7e54986ba45" />
 
 ## Changelog
++ **2026-07-29**: v1.10.1 — Close synchronous streaming responses reliably, move user-info network calls outside the pool lock, use starvation-free smooth weighted round-robin scheduling, sync runtime dependencies, and make Playground cancellation abort active requests.
 + **2026-07-28**: v1.10.0 — Add the current non-Max model lineup (Sonar 2, GPT-5.6 Terra, Gemini 3.1 Pro, Claude Sonnet 5, Kimi K3, GLM 5.2, Grok 4.5, and Nemotron 3 Ultra), centralize model mappings, and sync MCP/OpenAI discovery, tests, and docs.
 + **2026-05-21**: v1.9.5 — Add agent-friendly MCP aliases for quick ask, web search, reasoning, and deep research; improve tool descriptions and tests.
 + **2026-03-10**: v1.9.4 — Refresh the supported model lineup: add GPT-5.4 / GPT-5.4 Thinking, remove GPT-5.2 and Grok 4.1 variants, and sync MCP, OpenAI model exposure, tests, and docs.

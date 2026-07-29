@@ -310,83 +310,67 @@ class Client:
         # 不同模式耗时差异巨大（deep research 经常需要数分钟）。
         # 优先使用调用方显式传入的 timeout（由 ClientPool 注入），否则按 mode 兜底。
         request_timeout = timeout if timeout and timeout > 0 else get_search_timeout(mode)
-        resp = self.session.post(
-            ENDPOINT_SSE_ASK, json=json_data, stream=True, timeout=request_timeout
-        )
         chunks = []
 
-        def stream_response(resp):
+        def open_response():
+            return self.session.post(
+                ENDPOINT_SSE_ASK, json=json_data, stream=True, timeout=request_timeout
+            )
+
+        def stream_response(resp=None):
             """
             Generator for streaming responses.
             """
-            for chunk in resp.iter_lines(delimiter=b"\r\n\r\n"):
-                content = chunk.decode("utf-8")
+            if resp is None:
+                # Defer opening streaming connections until the caller starts
+                # consuming the generator, avoiding leaks for unused streams.
+                resp = open_response()
+            try:
+                for chunk in resp.iter_lines(delimiter=b"\r\n\r\n"):
+                    content = chunk.decode("utf-8")
 
-                if content.startswith("event: message\r\n"):
-                    try:
-                        content_json = json.loads(content[len("event: message\r\ndata: ") :])
+                    if content.startswith("event: message\r\n"):
+                        try:
+                            content_json = json.loads(content[len("event: message\r\ndata: ") :])
 
-                        # Parse the nested 'text' field if it exists
-                        if "text" in content_json and content_json["text"]:
-                            try:
-                                text_parsed = json.loads(content_json["text"])
-                                # Extract answer from FINAL step if available
-                                if isinstance(text_parsed, list):
-                                    for step in text_parsed:
-                                        if step.get("step_type") == "FINAL":
-                                            final_content = step.get("content", {})
-                                            if "answer" in final_content:
-                                                answer_data = json.loads(final_content["answer"])
-                                                content_json["answer"] = answer_data.get(
-                                                    "answer", ""
-                                                )
-                                                content_json["chunks"] = answer_data.get(
-                                                    "chunks", []
-                                                )
-                                                break
-                                content_json["text"] = text_parsed
-                            except (json.JSONDecodeError, TypeError, KeyError):
-                                pass
+                            # Parse the nested 'text' field if it exists
+                            if "text" in content_json and content_json["text"]:
+                                try:
+                                    text_parsed = json.loads(content_json["text"])
+                                    # Extract answer from FINAL step if available
+                                    if isinstance(text_parsed, list):
+                                        for step in text_parsed:
+                                            if step.get("step_type") == "FINAL":
+                                                final_content = step.get("content", {})
+                                                if "answer" in final_content:
+                                                    answer_data = json.loads(
+                                                        final_content["answer"]
+                                                    )
+                                                    content_json["answer"] = answer_data.get(
+                                                        "answer", ""
+                                                    )
+                                                    content_json["chunks"] = answer_data.get(
+                                                        "chunks", []
+                                                    )
+                                                    break
+                                    content_json["text"] = text_parsed
+                                except (json.JSONDecodeError, TypeError, KeyError):
+                                    pass
 
-                        chunks.append(content_json)
-                        yield chunks[-1]
-                    except (json.JSONDecodeError, KeyError):
-                        continue
+                            chunks.append(content_json)
+                            yield chunks[-1]
+                        except (json.JSONDecodeError, KeyError):
+                            continue
 
-                elif content.startswith("event: end_of_stream\r\n"):
-                    return
+                    elif content.startswith("event: end_of_stream\r\n"):
+                        return
+            finally:
+                resp.close()
 
         if stream:
-            return stream_response(resp)
+            return stream_response()
 
-        for chunk in resp.iter_lines(delimiter=b"\r\n\r\n"):
-            content = chunk.decode("utf-8")
-
-            if content.startswith("event: message\r\n"):
-                try:
-                    content_json = json.loads(content[len("event: message\r\ndata: ") :])
-
-                    # Parse the nested 'text' field if it exists
-                    if "text" in content_json and content_json["text"]:
-                        try:
-                            text_parsed = json.loads(content_json["text"])
-                            # Extract answer from FINAL step if available
-                            if isinstance(text_parsed, list):
-                                for step in text_parsed:
-                                    if step.get("step_type") == "FINAL":
-                                        final_content = step.get("content", {})
-                                        if "answer" in final_content:
-                                            answer_data = json.loads(final_content["answer"])
-                                            content_json["answer"] = answer_data.get("answer", "")
-                                            content_json["chunks"] = answer_data.get("chunks", [])
-                                            break
-                            content_json["text"] = text_parsed
-                        except (json.JSONDecodeError, TypeError, KeyError):
-                            pass
-
-                    chunks.append(content_json)
-                except (json.JSONDecodeError, KeyError):
-                    continue
-
-            elif content.startswith("event: end_of_stream\r\n"):
-                return chunks[-1] if chunks else {}
+        resp = open_response()
+        for _ in stream_response(resp):
+            pass
+        return chunks[-1] if chunks else {}
