@@ -86,6 +86,10 @@ interface ChatInputProps {
   models?: OAIModel[]
   selectedModel?: string
   onSelectModel?: (model: string) => void
+  streamEnabled?: boolean
+  onStreamEnabledChange?: (enabled: boolean) => void
+  isGenerating?: boolean
+  onStop?: () => void
   pendingFiles?: File[]
   onAddFiles?: (files: File[]) => void
   onRemoveFile?: (index: number) => void
@@ -99,6 +103,10 @@ export function ChatInput({
   models = [],
   selectedModel,
   onSelectModel,
+  streamEnabled = true,
+  onStreamEnabledChange,
+  isGenerating = false,
+  onStop,
   pendingFiles = [],
   onAddFiles,
   onRemoveFile,
@@ -248,13 +256,43 @@ export function ChatInput({
           />
         )}
 
-        <button
-          onClick={handleSend}
-          disabled={disabled || (!value.trim() && pendingFiles.length === 0)}
-          className="bg-acid text-void font-mono font-bold uppercase px-6 py-2 border-2 border-acid shadow-hard hover:shadow-hard-hover hover:translate-x-[2px] hover:translate-y-[2px] transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-hard disabled:hover:translate-x-0 disabled:hover:translate-y-0 h-[42px] mb-[1px]"
-        >
-          Send
-        </button>
+        {onStreamEnabledChange && (
+          <button
+            type="button"
+            onClick={() => onStreamEnabledChange(!streamEnabled)}
+            disabled={disabled}
+            className={`font-mono font-bold uppercase px-3 py-2 border-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed h-[42px] mb-[1px] ${
+              streamEnabled
+                ? 'bg-neon-blue/20 border-neon-blue text-neon-blue'
+                : 'bg-gray-800 border-gray-600 text-gray-400'
+            }`}
+            title={
+              streamEnabled
+                ? 'Streaming enabled — click to wait for complete responses'
+                : 'Complete response mode — click to enable streaming'
+            }
+          >
+            {streamEnabled ? 'Stream' : 'Complete'}
+          </button>
+        )}
+
+        {isGenerating && onStop ? (
+          <button
+            type="button"
+            onClick={onStop}
+            className="bg-danger text-white font-mono font-bold uppercase px-6 py-2 border-2 border-danger shadow-hard hover:shadow-hard-hover hover:translate-x-[2px] hover:translate-y-[2px] transition-all h-[42px] mb-[1px]"
+          >
+            Stop
+          </button>
+        ) : (
+          <button
+            onClick={handleSend}
+            disabled={disabled || (!value.trim() && pendingFiles.length === 0)}
+            className="bg-acid text-void font-mono font-bold uppercase px-6 py-2 border-2 border-acid shadow-hard hover:shadow-hard-hover hover:translate-x-[2px] hover:translate-y-[2px] transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-hard disabled:hover:translate-x-0 disabled:hover:translate-y-0 h-[42px] mb-[1px]"
+          >
+            Send
+          </button>
+        )}
       </div>
     </div>
   )

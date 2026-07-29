@@ -279,6 +279,10 @@ export interface ChatCompletionChunk {
     finish_reason: string | null
   }[]
   sources?: Source[]
+  error?: {
+    message: string
+    type?: string
+  }
 }
 
 export async function fetchOAIModels(apiToken: string): Promise<OAIModelsResponse> {
@@ -373,11 +377,17 @@ export async function* chatCompletionStream(
         if (!trimmed || !trimmed.startsWith('data: ')) continue
         const data = trimmed.slice(6)
         if (data === '[DONE]') return
+        let chunk: ChatCompletionChunk
         try {
-          yield JSON.parse(data) as ChatCompletionChunk
+          chunk = JSON.parse(data) as ChatCompletionChunk
         } catch {
-          // Skip invalid JSON
+          // Skip malformed JSON chunks.
+          continue
         }
+        if (chunk.error?.message) {
+          throw new Error(chunk.error.message)
+        }
+        yield chunk
       }
     }
   } finally {

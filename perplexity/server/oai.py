@@ -11,6 +11,7 @@ import time
 import uuid
 from typing import Dict, Optional, Union
 
+from starlette.concurrency import iterate_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, StreamingResponse
 
@@ -20,9 +21,23 @@ from .utils import (
 from .files_store import FileEntry, get_files_store
 
 try:
-    from .app import mcp, run_query, MCP_TOKEN, get_pool
+    from .app import (
+        MCP_TOKEN,
+        extract_clean_result,
+        get_pool,
+        mcp,
+        run_query,
+        run_query_stream,
+    )
 except ImportError:
-    from perplexity.server.app import mcp, run_query, MCP_TOKEN, get_pool
+    from perplexity.server.app import (
+        MCP_TOKEN,
+        extract_clean_result,
+        get_pool,
+        mcp,
+        run_query,
+        run_query_stream,
+    )
 
 try:
     from ..config import ALLOWED_FILE_EXTENSIONS
@@ -228,7 +243,21 @@ async def _non_stream_chat_response(
     })
 
 
-async def _fake_stream_chat_response(
+def _stream_delta(previous: str, current: str) -> tuple[str, str]:
+    """Convert cumulative upstream answer snapshots into append-only deltas."""
+    if not current or current == previous:
+        return "", previous
+    if current.startswith(previous):
+        return current[len(previous) :], current
+    if previous.startswith(current):
+        return "", previous
+
+    # Some upstream variants may emit independent fragments instead of
+    # cumulative snapshots. Preserve those fragments as append-only content.
+    return current, previous + current
+
+
+async def _stream_chat_response(
     query: str,
     mode: str,
     model: Optional[str],
@@ -238,17 +267,51 @@ async def _fake_stream_chat_response(
     files: Optional[Dict[str, bytes]] = None,
     fallback_to_auto: bool = True
 ) -> StreamingResponse:
-    """Generate fake streaming SSE response.
-
-    First fetches the complete result, then streams it character by character.
-    """
+    """Forward the upstream Perplexity stream as OpenAI-compatible SSE."""
 
     async def event_generator():
-        result = await asyncio.to_thread(
-            run_query, query, mode, model, None, "en-US", False, files or {}, fallback_to_auto
+        upstream = run_query_stream(
+            query,
+            mode,
+            model,
+            None,
+            "en-US",
+            False,
+            files or {},
+            fallback_to_auto,
         )
+        accumulated_content = ""
+        latest_sources = []
 
-        if result.get("status") == "error":
+        try:
+            async for upstream_chunk in iterate_in_threadpool(upstream):
+                clean_chunk = extract_clean_result(upstream_chunk)
+                sources = clean_chunk.get("sources", [])
+                if sources:
+                    latest_sources = sources
+
+                answer = clean_chunk.get("answer", "")
+                delta, accumulated_content = _stream_delta(
+                    accumulated_content, answer
+                )
+                if not delta:
+                    continue
+
+                chunk_data = {
+                    "id": response_id,
+                    "object": "chat.completion.chunk",
+                    "created": created,
+                    "model": model_id,
+                    "choices": [{
+                        "index": 0,
+                        "delta": {"content": delta},
+                        "finish_reason": None
+                    }]
+                }
+                yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
             error_data = {
                 "id": response_id,
                 "object": "chat.completion.chunk",
@@ -258,29 +321,19 @@ async def _fake_stream_chat_response(
                     "index": 0,
                     "delta": {},
                     "finish_reason": "error"
-                }]
+                }],
+                "error": {
+                    "message": str(exc),
+                    "type": "api_error",
+                },
             }
-            yield f"data: {json.dumps(error_data)}\n\n"
+            yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
             yield "data: [DONE]\n\n"
             return
-
-        data = result.get("data", {})
-        answer = data.get("answer", "")
-        sources = data.get("sources", [])
-
-        for char in answer:
-            chunk_data = {
-                "id": response_id,
-                "object": "chat.completion.chunk",
-                "created": created,
-                "model": model_id,
-                "choices": [{
-                    "index": 0,
-                    "delta": {"content": char},
-                    "finish_reason": None
-                }]
-            }
-            yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
+        finally:
+            close = getattr(upstream, "close", None)
+            if close:
+                await asyncio.shield(asyncio.to_thread(close))
 
         final_data = {
             "id": response_id,
@@ -292,7 +345,7 @@ async def _fake_stream_chat_response(
                 "delta": {},
                 "finish_reason": "stop"
             }],
-            "sources": sources
+            "sources": latest_sources
         }
         yield f"data: {json.dumps(final_data)}\n\n"
         yield "data: [DONE]\n\n"
@@ -303,6 +356,7 @@ async def _fake_stream_chat_response(
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
         }
     )
 
@@ -401,10 +455,8 @@ async def oai_delete_file(request: Request) -> JSONResponse:
 async def oai_chat_completions(request: Request) -> Union[JSONResponse, StreamingResponse]:
     """OpenAI-compatible chat completions endpoint.
 
-    Supports both streaming and non-streaming modes.
-    Accepts input_file content parts (file_data, file_url, file_id).
-    Note: Streaming mode uses fake streaming (fetches complete result first,
-    then streams character by character).
+    Streams upstream events by default. Pass stream=false to wait for a complete
+    JSON response. Accepts input_file content parts (file_data, file_url, file_id).
     """
     auth_error = _verify_auth(request)
     if auth_error:
@@ -417,13 +469,17 @@ async def oai_chat_completions(request: Request) -> Union[JSONResponse, Streamin
 
     model_id = body.get("model")
     messages = body.get("messages", [])
-    stream = body.get("stream", False)
+    stream = body.get("stream", True)
 
     if not model_id:
         return _create_error_response("model is required", "invalid_request_error", 400)
 
     if not messages:
         return _create_error_response("messages is required", "invalid_request_error", 400)
+    if not isinstance(stream, bool):
+        return _create_error_response(
+            "stream must be a boolean", "invalid_request_error", 400
+        )
 
     try:
         mode, model = parse_oai_model(model_id)
@@ -465,7 +521,7 @@ async def oai_chat_completions(request: Request) -> Union[JSONResponse, Streamin
     created = int(time.time())
 
     if stream:
-        return await _fake_stream_chat_response(
+        return await _stream_chat_response(
             query, mode, model, model_id, response_id, created, files
         )
     else:

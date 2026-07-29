@@ -4,7 +4,7 @@ FastMCP application instance and shared utilities.
 
 import os
 from contextlib import asynccontextmanager
-from typing import Any, Dict, Iterable, List, Optional, Union
+from typing import Any, Dict, Iterable, Iterator, List, Optional, Union
 
 from fastmcp import FastMCP
 from fastmcp.server.middleware import Middleware, MiddlewareContext
@@ -145,6 +145,214 @@ def extract_clean_result(response: Dict[str, Any]) -> Dict[str, Any]:
     result["sources"] = sources
 
     return result
+
+
+def _iter_client_stream(
+    client: Client,
+    query: str,
+    mode: str,
+    model: Optional[str],
+    sources: List[str],
+    files: Dict[str, Any],
+    language: str,
+    incognito: bool,
+    timeout: float,
+    file_upload_timeout: float,
+) -> Iterator[Dict[str, Any]]:
+    """Run one upstream streaming request and always close its iterator."""
+    response_stream = client.search(
+        query,
+        mode=mode,
+        model=model,
+        sources=sources,
+        files=files,
+        stream=True,
+        language=language,
+        incognito=incognito,
+        timeout=timeout,
+        file_upload_timeout=file_upload_timeout,
+    )
+    try:
+        yield from response_stream
+    finally:
+        close = getattr(response_stream, "close", None)
+        if close:
+            close()
+
+
+def _mark_stream_failure(pool: ClientPool, client_id: str, mode: str, exc: Exception) -> None:
+    """Apply the same account failure policy used by non-streaming queries."""
+    error_msg = str(exc).lower()
+    if mode == "pro" and any(
+        keyword in error_msg for keyword in ["pro", "quota", "limit", "remaining"]
+    ):
+        pool.mark_client_pro_failure(client_id)
+    else:
+        pool.mark_client_failure(client_id)
+
+
+def run_query_stream(
+    query: str,
+    mode: str,
+    model: Optional[str] = None,
+    sources: Optional[List[str]] = None,
+    language: str = "en-US",
+    incognito: bool = False,
+    files: Optional[Union[Dict[str, Any], Iterable[str]]] = None,
+    fallback_to_auto: bool = True,
+) -> Iterator[Dict[str, Any]]:
+    """Stream raw Perplexity events with pool failover before the first event.
+
+    Once an event has been yielded, failures are propagated instead of switching
+    accounts so downstream clients never receive a duplicated or spliced answer.
+    Closing this iterator closes the active upstream HTTP response.
+    """
+    pool = get_pool()
+    clean_query = sanitize_query(query)
+    chosen_sources = sources or ["web"]
+    if SEARCH_LANGUAGES is None or language not in SEARCH_LANGUAGES:
+        valid_langs = ", ".join(SEARCH_LANGUAGES) if SEARCH_LANGUAGES else "en-US"
+        raise ValidationError(
+            f"Invalid language '{language}'. Choose from: {valid_langs}"
+        )
+    normalized_files = normalize_files(files)
+
+    should_fallback = fallback_to_auto and pool.is_fallback_to_auto_enabled()
+    is_pro_mode = mode in ("pro", "reasoning", "deep research")
+    if pool.is_incognito_enabled():
+        incognito = True
+
+    attempted_clients = set()
+    skipped_downgraded_clients = []
+    last_error: Optional[Exception] = None
+    total_clients = len(pool.clients)
+
+    for _ in range(total_clients):
+        excluded_ids = attempted_clients | {
+            client_id for client_id, _, _ in skipped_downgraded_clients
+        }
+        client_id, client = pool.get_client(exclude_ids=excluded_ids)
+        if client is None or client_id is None:
+            if not attempted_clients:
+                earliest = pool.get_earliest_available_time()
+                last_error = RuntimeError(
+                    "All clients are currently unavailable. "
+                    f"Earliest available at: {earliest}"
+                )
+            break
+
+        client_state = pool.get_client_state(client_id)
+        client_weight = pool.get_client_weight(client_id)
+        if is_pro_mode and client_state == "downgrade":
+            skipped_downgraded_clients.append((client_id, client, client_weight))
+            continue
+
+        attempted_clients.add(client_id)
+        yielded_event = False
+        try:
+            validate_search_params(mode, model, chosen_sources, own_account=client.own)
+            validate_query_limits(
+                client.copilot, client.file_upload, mode, len(normalized_files)
+            )
+            for chunk in _iter_client_stream(
+                client,
+                clean_query,
+                mode,
+                model,
+                chosen_sources,
+                normalized_files,
+                language,
+                incognito,
+                pool.get_search_timeout(mode),
+                pool.get_file_upload_timeout(),
+            ):
+                yielded_event = True
+                yield chunk
+
+            pool.mark_client_success(client_id)
+            return
+        except GeneratorExit:
+            raise
+        except ValidationError as exc:
+            last_error = exc
+            error_msg = str(exc).lower()
+            is_client_limit = any(
+                keyword in error_msg
+                for keyword in ["pro", "limit", "account", "upload", "quota", "remaining"]
+            )
+            if not is_client_limit:
+                raise
+            _mark_stream_failure(pool, client_id, mode, exc)
+            if yielded_event:
+                raise
+        except Exception as exc:
+            last_error = exc
+            _mark_stream_failure(pool, client_id, mode, exc)
+            if yielded_event:
+                raise
+
+    if should_fallback and is_pro_mode and skipped_downgraded_clients:
+        skipped_downgraded_clients.sort(key=lambda item: item[2], reverse=True)
+        best_client_id, best_client, _ = skipped_downgraded_clients[0]
+        yielded_event = False
+        try:
+            validate_search_params(
+                "auto", None, chosen_sources, own_account=best_client.own
+            )
+            for chunk in _iter_client_stream(
+                best_client,
+                clean_query,
+                "auto",
+                None,
+                chosen_sources,
+                {},
+                language,
+                incognito,
+                pool.get_search_timeout("auto"),
+                pool.get_file_upload_timeout(),
+            ):
+                yielded_event = True
+                yield chunk
+
+            pool.mark_client_success(best_client_id)
+            return
+        except GeneratorExit:
+            raise
+        except Exception as exc:
+            last_error = exc
+            pool.mark_client_failure(best_client_id)
+            if yielded_event:
+                raise
+
+    if should_fallback and mode != "auto":
+        yielded_event = False
+        try:
+            anonymous_client = Client({})
+            for chunk in _iter_client_stream(
+                anonymous_client,
+                clean_query,
+                "auto",
+                None,
+                chosen_sources,
+                {},
+                language,
+                True,
+                pool.get_search_timeout("auto"),
+                pool.get_file_upload_timeout(),
+            ):
+                yielded_event = True
+                yield chunk
+            return
+        except GeneratorExit:
+            raise
+        except Exception as exc:
+            last_error = exc
+            if yielded_event:
+                raise
+
+    if last_error:
+        raise last_error
+    raise RuntimeError("Request failed before the upstream stream started.")
 
 
 def run_query(

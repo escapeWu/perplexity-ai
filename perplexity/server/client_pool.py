@@ -415,16 +415,20 @@ class ClientPool:
             wrapper.scheduler_current = 0
             return {"status": "ok", "message": f"Client '{client_id}' reset successfully"}
 
-    def get_client(self) -> Tuple[Optional[str], Optional[Client]]:
+    def get_client(
+        self, exclude_ids: Optional[set[str]] = None
+    ) -> Tuple[Optional[str], Optional[Client]]:
         """
         Get the next available client using weighted round-robin selection.
 
         When clients have equal weights, they are selected in round-robin order.
         When weights differ, higher weight clients are selected more frequently.
+        Clients in exclude_ids are skipped for the current selection.
 
         Returns:
             Tuple of (client_id, Client) or (None, None) if no clients available
         """
+        excluded = exclude_ids or set()
         with self._lock:
             if not self.clients:
                 return None, None
@@ -433,7 +437,7 @@ class ClientPool:
             available_wrappers = [
                 self.clients[client_id]
                 for client_id in self._rotation_order
-                if self.clients[client_id].is_available()
+                if client_id not in excluded and self.clients[client_id].is_available()
             ]
 
             if available_wrappers:

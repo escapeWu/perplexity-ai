@@ -13,14 +13,17 @@ export function Playground() {
     models,
     selectedModel,
     apiToken,
+    streamEnabled,
     pendingFiles,
     setSelectedModel,
     saveApiToken,
+    setStreamEnabled,
     loadModels,
     sendMessage,
     clearChat,
     addFiles,
     removeFile,
+    stopStreaming,
   } = useChat()
 
   const [isHeaderVisible, setIsHeaderVisible] = useState(true)
@@ -126,6 +129,10 @@ export function Playground() {
             models={models}
             selectedModel={selectedModel}
             onSelectModel={setSelectedModel}
+            streamEnabled={streamEnabled}
+            onStreamEnabledChange={setStreamEnabled}
+            isGenerating={isLoading}
+            onStop={stopStreaming}
             pendingFiles={pendingFiles}
             onAddFiles={addFiles}
             onRemoveFile={removeFile}

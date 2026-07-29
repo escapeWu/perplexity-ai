@@ -372,6 +372,24 @@ class TestClientPool:
 
     @patch("pathlib.Path.exists", return_value=False)
     @patch("perplexity.server.client_pool.Client")
+    def test_get_client_skips_explicitly_excluded_clients(
+        self, mock_client_class, mock_path_exists
+    ):
+        """Per-request failover can exclude accounts already attempted."""
+        from perplexity.server.client_pool import ClientPool
+
+        with patch.dict(os.environ, {}, clear=True):
+            pool = ClientPool()
+
+        pool.add_client("user1", "csrf1", "session1")
+
+        client_id, client = pool.get_client(exclude_ids={"anonymous"})
+
+        assert client_id == "user1"
+        assert client is pool.clients["user1"].client
+
+    @patch("pathlib.Path.exists", return_value=False)
+    @patch("perplexity.server.client_pool.Client")
     def test_get_client_all_unavailable(self, mock_client_class, mock_path_exists):
         """Test get_client when all clients are unavailable."""
         from perplexity.server.client_pool import ClientPool

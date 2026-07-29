@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { chatCompletionStream } from 'lib/api'
+import { chatCompletion, chatCompletionStream } from 'lib/api'
 import { useChat } from './useChat'
 
 vi.mock('lib/api', () => ({
@@ -56,5 +56,32 @@ describe('useChat cancellation', () => {
           message.content.startsWith('Error:')
       )
     ).toBe(false)
+  })
+
+  it('uses the complete response API when streaming is disabled', async () => {
+    vi.mocked(chatCompletion).mockResolvedValue({
+      id: 'chatcmpl-test',
+      object: 'chat.completion',
+      created: 1,
+      model: 'perplexity-search',
+      choices: [
+        {
+          index: 0,
+          message: { role: 'assistant', content: 'complete answer' },
+          finish_reason: 'stop',
+        },
+      ],
+    })
+
+    const { result } = renderHook(() => useChat())
+    act(() => result.current.saveApiToken('test-token'))
+    act(() => result.current.setStreamEnabled(false))
+    await act(async () => {
+      await result.current.sendMessage('hello')
+    })
+
+    expect(chatCompletion).toHaveBeenCalledOnce()
+    expect(chatCompletionStream).not.toHaveBeenCalled()
+    expect(result.current.messages.at(-1)?.content).toBe('complete answer')
   })
 })
