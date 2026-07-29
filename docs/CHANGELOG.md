@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.12.0] - 2026-07-29
+
+### Added
+
+- Added opt-in structured progress chunks to OpenAI-compatible streaming responses.
+- Added a live stage timeline to the Playground for query analysis, web search, source review, and answer generation.
+
+### Fixed
+
+- Preserved partial streamed output and stage state when requests fail or are cancelled.
+- Aligned synchronous and asynchronous Perplexity requests with the browser `query_source` field required by current models.
+
 ## [Unreleased] - 2025-12-02
 
 ### Fixed

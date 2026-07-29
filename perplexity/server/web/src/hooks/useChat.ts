@@ -3,6 +3,8 @@ import {
   ChatMessage,
   InputFilePart,
   OAIModel,
+  PerplexityProgress,
+  ProgressStatus,
   Source,
   fetchOAIModels,
   chatCompletion,
@@ -19,6 +21,44 @@ export interface ChatState {
   apiToken: string
   streamEnabled: boolean
   pendingFiles: File[]
+}
+
+function updateLastAssistant(
+  messages: ChatMessage[],
+  updater: (message: ChatMessage) => ChatMessage
+): ChatMessage[] {
+  const lastIdx = messages.length - 1
+  if (lastIdx < 0 || messages[lastIdx].role !== 'assistant') return messages
+
+  const updated = [...messages]
+  updated[lastIdx] = updater(updated[lastIdx])
+  return updated
+}
+
+function upsertProgress(
+  progress: PerplexityProgress[] | undefined,
+  incoming: PerplexityProgress
+): PerplexityProgress[] {
+  const updated = [...(progress || [])]
+  const index = updated.findIndex((item) => item.id === incoming.id)
+  if (index === -1) {
+    updated.push(incoming)
+  } else {
+    updated[index] = {
+      ...updated[index],
+      ...incoming,
+      detail: incoming.detail || updated[index].detail,
+    }
+  }
+  return updated
+}
+
+function settleRunningProgress(
+  progress: PerplexityProgress[] | undefined,
+  status: Exclude<ProgressStatus, 'running'>
+): PerplexityProgress[] | undefined {
+  if (!progress) return progress
+  return progress.map((item) => (item.status === 'running' ? { ...item, status } : item))
 }
 
 /** Read a File as a base64 data-URL and return only the base64 payload. */
@@ -174,36 +214,35 @@ export function useChat() {
 
           let streamSources: Source[] = []
           for await (const chunk of stream) {
+            if (chunk.perplexity_progress) {
+              setMessages((prev) =>
+                updateLastAssistant(prev, (lastMsg) => ({
+                  ...lastMsg,
+                  progress: upsertProgress(lastMsg.progress, chunk.perplexity_progress!),
+                }))
+              )
+            }
+
             const delta = chunk.choices[0]?.delta?.content
             if (delta) {
-              setMessages((prev) => {
-                const updated = [...prev]
-                const lastIdx = updated.length - 1
-                const lastMsg = updated[lastIdx]
-                if (lastMsg.role === 'assistant') {
-                  updated[lastIdx] = {
-                    ...lastMsg,
-                    content: (lastMsg.content as string) + delta,
-                  }
-                }
-                return updated
-              })
+              setMessages((prev) =>
+                updateLastAssistant(prev, (lastMsg) => ({
+                  ...lastMsg,
+                  content: (lastMsg.content as string) + delta,
+                }))
+              )
             }
             if (chunk.sources && chunk.sources.length > 0) {
               streamSources = chunk.sources
             }
           }
-          if (streamSources.length > 0) {
-            setMessages((prev) => {
-              const updated = [...prev]
-              const lastIdx = updated.length - 1
-              const lastMsg = updated[lastIdx]
-              if (lastMsg.role === 'assistant') {
-                updated[lastIdx] = { ...lastMsg, sources: streamSources }
-              }
-              return updated
-            })
-          }
+          setMessages((prev) =>
+            updateLastAssistant(prev, (lastMsg) => ({
+              ...lastMsg,
+              ...(streamSources.length > 0 ? { sources: streamSources } : {}),
+              progress: settleRunningProgress(lastMsg.progress, 'completed'),
+            }))
+          )
         } else {
           const response = await chatCompletion(
             { model: selectedModel, messages: allMessages },
@@ -219,14 +258,45 @@ export function useChat() {
           abortController.signal.aborted ||
           (err instanceof DOMException && err.name === 'AbortError')
         ) {
+          setMessages((prev) => {
+            const updated = updateLastAssistant(prev, (lastMsg) => ({
+              ...lastMsg,
+              progress: settleRunningProgress(lastMsg.progress, 'cancelled'),
+            }))
+            const lastMessage = updated.at(-1)
+            if (
+              lastMessage?.role === 'assistant' &&
+              lastMessage.content === '' &&
+              (!lastMessage.progress || lastMessage.progress.length === 0)
+            ) {
+              return updated.slice(0, -1)
+            }
+            return updated
+          })
           return
         }
         const errorMessage = err instanceof Error ? err.message : 'Failed to send message'
         setError(errorMessage)
-        setMessages((prev) => [
-          ...prev.filter((m) => m.role !== 'assistant' || m.content !== ''),
-          { role: 'assistant', content: `Error: ${errorMessage}` },
-        ])
+        setMessages((prev) => {
+          const lastMessage = prev.at(-1)
+          if (lastMessage?.role !== 'assistant') {
+            return [...prev, { role: 'assistant', content: `Error: ${errorMessage}` }]
+          }
+          if (
+            lastMessage.content === '' &&
+            (!lastMessage.progress || lastMessage.progress.length === 0)
+          ) {
+            return [
+              ...prev.slice(0, -1),
+              { role: 'assistant', content: `Error: ${errorMessage}` },
+            ]
+          }
+          return updateLastAssistant(prev, (message) => ({
+            ...message,
+            error: errorMessage,
+            progress: settleRunningProgress(message.progress, 'failed'),
+          }))
+        })
       } finally {
         if (abortControllerRef.current === abortController) {
           abortControllerRef.current = null

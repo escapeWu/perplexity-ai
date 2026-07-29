@@ -74,7 +74,130 @@ async def test_stream_forwards_first_snapshot_before_upstream_finishes():
     assert final_data["choices"][0]["finish_reason"] == "stop"
     assert final_data["sources"] == [{"url": "https://example.com", "title": "Example"}]
     assert done == "data: [DONE]\n\n"
+    assert all("perplexity_progress" not in decode_sse(item) for item in (first, second, final))
     assert upstream_closed.wait(timeout=1)
+
+
+@pytest.mark.asyncio
+async def test_stream_progress_extension_emits_deduplicated_lifecycle_events():
+    steps = [
+        {
+            "step_type": "INITIAL_QUERY",
+            "content": {"goal_id": "internal-goal", "query": "private query"},
+        }
+    ]
+
+    def upstream():
+        yield {"text": list(steps)}
+        steps.append(
+            {
+                "step_type": "SEARCH_WEB",
+                "content": {
+                    "goal_id": "internal-goal",
+                    "queries": ["weather Seoul", "weather Tokyo"],
+                },
+            }
+        )
+        yield {"text": list(steps)}
+        steps.append(
+            {
+                "step_type": "SEARCH_RESULTS",
+                "content": {
+                    "goal_id": "internal-goal",
+                    "web_results": [{"url": "https://a.test"}, {"url": "https://b.test"}],
+                },
+            }
+        )
+        yield {"text": list(steps)}
+        steps.append(
+            {
+                "step_type": "FINAL",
+                "content": {"goal_id": "internal-goal"},
+            }
+        )
+        yield {"text": list(steps), "answer": "Hel"}
+        yield {"text": list(steps), "answer": "Hello"}
+
+    with patch("perplexity.server.oai.run_query_stream", return_value=upstream()):
+        response = await oai._stream_chat_response(
+            "test",
+            "pro",
+            "gpt-5.6-terra",
+            "perplexity-search",
+            "chatcmpl-test",
+            1,
+            include_progress=True,
+        )
+        frames = [frame async for frame in response.body_iterator]
+
+    payloads = [decode_sse(frame) for frame in frames if frame != "data: [DONE]\n\n"]
+    progress = [
+        payload["perplexity_progress"]
+        for payload in payloads
+        if "perplexity_progress" in payload
+    ]
+
+    assert [(event["stage"], event["status"]) for event in progress] == [
+        ("initial_query", "running"),
+        ("initial_query", "completed"),
+        ("search_web", "running"),
+        ("search_web", "completed"),
+        ("search_results", "running"),
+        ("search_results", "completed"),
+        ("final", "running"),
+        ("final", "completed"),
+    ]
+    assert progress[2]["detail"] == {
+        "queries": ["weather Seoul", "weather Tokyo"],
+        "query_count": 2,
+    }
+    assert progress[4]["detail"] == {"source_count": 2}
+    assert "goal_id" not in json.dumps(progress)
+
+    content_deltas = [
+        payload["choices"][0]["delta"]["content"]
+        for payload in payloads
+        if payload["choices"][0]["delta"].get("content")
+    ]
+    assert content_deltas == ["Hel", "lo"]
+    assert payloads[-1]["choices"][0]["finish_reason"] == "stop"
+    assert frames[-1] == "data: [DONE]\n\n"
+
+
+@pytest.mark.asyncio
+async def test_stream_progress_marks_active_stage_failed_on_upstream_error():
+    def upstream():
+        yield {
+            "text": [
+                {
+                    "step_type": "SEARCH_WEB",
+                    "content": {"queries": ["test query"]},
+                }
+            ]
+        }
+        raise RuntimeError("upstream interrupted")
+
+    with patch("perplexity.server.oai.run_query_stream", return_value=upstream()):
+        response = await oai._stream_chat_response(
+            "test",
+            "pro",
+            None,
+            "perplexity-search",
+            "chatcmpl-test",
+            1,
+            include_progress=True,
+        )
+        frames = [frame async for frame in response.body_iterator]
+
+    payloads = [decode_sse(frame) for frame in frames if frame != "data: [DONE]\n\n"]
+    progress = [
+        payload["perplexity_progress"]
+        for payload in payloads
+        if "perplexity_progress" in payload
+    ]
+    assert [event["status"] for event in progress] == ["running", "failed"]
+    assert payloads[-1]["choices"][0]["finish_reason"] == "error"
+    assert payloads[-1]["error"]["message"] == "upstream interrupted"
 
 
 @pytest.mark.asyncio
@@ -120,7 +243,28 @@ async def test_chat_completions_streams_by_default():
 
     assert response is streamed_response
     stream_mock.assert_awaited_once()
+    assert stream_mock.await_args.kwargs["include_progress"] is False
     non_stream_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_enables_progress_extension_on_request():
+    streamed_response = StreamingResponse(iter(["stream"]))
+    stream_mock = AsyncMock(return_value=streamed_response)
+
+    with patch("perplexity.server.oai._stream_chat_response", stream_mock):
+        response = await oai.oai_chat_completions(
+            make_request(
+                {
+                    "model": "perplexity-search",
+                    "messages": [{"role": "user", "content": "hello"}],
+                    "perplexity": {"include_progress": True},
+                }
+            )
+        )
+
+    assert response is streamed_response
+    assert stream_mock.await_args.kwargs["include_progress"] is True
 
 
 @pytest.mark.asyncio

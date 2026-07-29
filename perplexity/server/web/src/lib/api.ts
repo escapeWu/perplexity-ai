@@ -234,10 +234,28 @@ export interface InputFilePart {
   file_data: string
 }
 
+export type ProgressStatus = 'running' | 'completed' | 'failed' | 'cancelled'
+
+export interface ProgressDetail {
+  queries?: string[]
+  query_count?: number
+  source_count?: number
+}
+
+export interface PerplexityProgress {
+  id: string
+  stage: 'initial_query' | 'search_web' | 'search_results' | 'final'
+  status: ProgressStatus
+  label: string
+  detail?: ProgressDetail
+}
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
   content: string | Array<TextPart | InputFilePart>
   sources?: Source[]
+  progress?: PerplexityProgress[]
+  error?: string
 }
 
 export interface ChatCompletionRequest {
@@ -246,6 +264,9 @@ export interface ChatCompletionRequest {
   stream?: boolean
   temperature?: number
   max_tokens?: number
+  perplexity?: {
+    include_progress?: boolean
+  }
 }
 
 export interface ChatCompletionChoice {
@@ -279,6 +300,7 @@ export interface ChatCompletionChunk {
     finish_reason: string | null
   }[]
   sources?: Source[]
+  perplexity_progress?: PerplexityProgress
   error?: {
     message: string
     type?: string
@@ -339,6 +361,10 @@ export async function* chatCompletionStream(
     ...request,
     messages: cleanMessagesForRequest(request.messages),
     stream: true,
+    perplexity: {
+      ...request.perplexity,
+      include_progress: request.perplexity?.include_progress ?? true,
+    },
   }
   const resp = await fetch(`${API_BASE}/v1/chat/completions`, {
     method: 'POST',

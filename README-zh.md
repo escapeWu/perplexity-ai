@@ -19,6 +19,7 @@
 <img width="1894" height="989" alt="image" src="https://github.com/user-attachments/assets/4a495432-8305-4820-8b4a-d7e54986ba45" />
 
 ## 更新记录
++ **2026-07-29**：v1.12.0 — 新增可选的 Perplexity 结构化进度事件与 Playground 实时阶段时间线，在流式异常和取消时保留部分输出，并让同步/异步请求携带当前模型所需的浏览器 `query_source`。
 + **2026-07-29**：v1.11.0 — OpenAI 兼容聊天补全默认实时转发上游流，保留通过 `stream: false` 获取完整 JSON 响应的能力，新增 WebUI 流式模式切换与有效的停止操作，并增强流式故障转移和资源清理。
 + **2026-07-29**：v1.10.1 — 确保同步流式响应可靠关闭，将用户信息网络请求移出号池锁，采用无饥饿的平滑加权轮询调度，同步运行依赖，并让 Playground 的停止操作真正取消活跃请求。
 + **2026-07-28**：v1.10.0 — 新增当前全部非 Max 模型（Sonar 2、GPT-5.6 Terra、Gemini 3.1 Pro、Claude Sonnet 5、Kimi K3、GLM 5.2、Grok 4.5、Nemotron 3 Ultra），集中维护模型映射，并同步 MCP/OpenAI 模型发现、测试与文档。
@@ -215,7 +216,10 @@ PPLX_ADMIN_TOKEN=your-admin-token
 **认证:** 在请求头中添加 `Authorization: Bearer <MCP_TOKEN>`
 
 聊天补全默认实时转发上游流式事件。显式传入 `"stream": false`
-可等待完整 JSON 响应。
+可等待完整 JSON 响应。Playground 会自动请求可选的 Perplexity 进度事件，
+用于展示分析问题、搜索网页、整理来源和生成答案等阶段。其他 OpenAI 客户端
+可通过 `"perplexity": {"include_progress": true}` 主动启用；为保持兼容，
+API 默认不发送该扩展。
 
 #### 获取模型列表
 
@@ -245,9 +249,13 @@ curl http://127.0.0.1:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "perplexity-thinking",
-    "messages": [{"role": "user", "content": "分析一下人工智能的发展趋势"}]
+    "messages": [{"role": "user", "content": "分析一下人工智能的发展趋势"}],
+    "perplexity": {"include_progress": true}
   }'
 ```
+
+进度更新仍使用标准 `chat.completion.chunk` 事件，正文增量为空，并额外包含
+`perplexity_progress` 字段；不识别该扩展的客户端保持关闭即可。
 
 ### 支持的模型
 

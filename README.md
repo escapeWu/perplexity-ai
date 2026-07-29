@@ -22,6 +22,7 @@ An unofficial Python API for Perplexity.ai that exposes search capabilities via 
 <img width="1894" height="989" alt="image" src="https://github.com/user-attachments/assets/4a495432-8305-4820-8b4a-d7e54986ba45" />
 
 ## Changelog
++ **2026-07-29**: v1.12.0 — Add optional structured Perplexity progress events and a live Playground stage timeline, preserve partial output across stream failures and cancellation, and align sync/async requests with the browser `query_source` required by current models.
 + **2026-07-29**: v1.11.0 — Stream OpenAI-compatible chat completions from upstream in real time by default, retain opt-in complete JSON responses with `stream: false`, add WebUI stream mode controls and working cancellation, and harden stream failover and cleanup.
 + **2026-07-29**: v1.10.1 — Close synchronous streaming responses reliably, move user-info network calls outside the pool lock, use starvation-free smooth weighted round-robin scheduling, sync runtime dependencies, and make Playground cancellation abort active requests.
 + **2026-07-28**: v1.10.0 — Add the current non-Max model lineup (Sonar 2, GPT-5.6 Terra, Gemini 3.1 Pro, Claude Sonnet 5, Kimi K3, GLM 5.2, Grok 4.5, and Nemotron 3 Ultra), centralize model mappings, and sync MCP/OpenAI discovery, tests, and docs.
@@ -195,7 +196,11 @@ Configure multiple Perplexity account tokens to enable load balancing and high a
 **Authorization:** `Bearer <MCP_TOKEN>`
 
 Chat completions stream live upstream events by default. Pass `"stream": false`
-to wait for a complete JSON response.
+to wait for a complete JSON response. The Playground also requests optional
+Perplexity progress chunks so it can display analysis, web search, source review,
+and answer-writing stages. Other OpenAI clients can opt in with
+`"perplexity": {"include_progress": true}`; the extension is disabled by default
+for API compatibility.
 
 ### Examples
 
@@ -223,9 +228,14 @@ curl http://127.0.0.1:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "perplexity-thinking",
-    "messages": [{"role": "user", "content": "Analyze AI trends"}]
+    "messages": [{"role": "user", "content": "Analyze AI trends"}],
+    "perplexity": {"include_progress": true}
   }'
 ```
+
+Progress updates remain regular `chat.completion.chunk` events with an empty
+content delta and an additional `perplexity_progress` field. Clients that do not
+understand the extension can leave it disabled.
 
 ### Supported Models
 

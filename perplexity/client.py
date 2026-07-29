@@ -300,6 +300,7 @@ class Client:
                 "last_backend_uuid": (follow_up["backend_uuid"] if follow_up else None),
                 "mode": "concise" if mode == "auto" else "copilot",
                 "model_preference": MODEL_MAPPINGS[mode][model],
+                "query_source": "followup" if follow_up else "home",
                 "source": "default",
                 "sources": sources,
                 "version": "2.18",

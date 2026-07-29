@@ -19,6 +19,7 @@ from .utils import (
     generate_oai_models, parse_oai_model, create_oai_error_response,
 )
 from .files_store import FileEntry, get_files_store
+from .progress import ProgressTracker, make_progress_chunk
 
 try:
     from .app import (
@@ -265,7 +266,8 @@ async def _stream_chat_response(
     response_id: str,
     created: int,
     files: Optional[Dict[str, bytes]] = None,
-    fallback_to_auto: bool = True
+    fallback_to_auto: bool = True,
+    include_progress: bool = False,
 ) -> StreamingResponse:
     """Forward the upstream Perplexity stream as OpenAI-compatible SSE."""
 
@@ -282,9 +284,17 @@ async def _stream_chat_response(
         )
         accumulated_content = ""
         latest_sources = []
+        progress_tracker = ProgressTracker() if include_progress else None
 
         try:
             async for upstream_chunk in iterate_in_threadpool(upstream):
+                if progress_tracker is not None:
+                    for progress in progress_tracker.update(upstream_chunk):
+                        progress_data = make_progress_chunk(
+                            response_id, created, model_id, progress
+                        )
+                        yield f"data: {json.dumps(progress_data, ensure_ascii=False)}\n\n"
+
                 clean_chunk = extract_clean_result(upstream_chunk)
                 sources = clean_chunk.get("sources", [])
                 if sources:
@@ -312,6 +322,14 @@ async def _stream_chat_response(
         except asyncio.CancelledError:
             raise
         except Exception as exc:
+            if progress_tracker is not None:
+                failed_progress = progress_tracker.finish("failed")
+                if failed_progress is not None:
+                    progress_data = make_progress_chunk(
+                        response_id, created, model_id, failed_progress
+                    )
+                    yield f"data: {json.dumps(progress_data, ensure_ascii=False)}\n\n"
+
             error_data = {
                 "id": response_id,
                 "object": "chat.completion.chunk",
@@ -334,6 +352,14 @@ async def _stream_chat_response(
             close = getattr(upstream, "close", None)
             if close:
                 await asyncio.shield(asyncio.to_thread(close))
+
+        if progress_tracker is not None:
+            completed_progress = progress_tracker.finish("completed")
+            if completed_progress is not None:
+                progress_data = make_progress_chunk(
+                    response_id, created, model_id, completed_progress
+                )
+                yield f"data: {json.dumps(progress_data, ensure_ascii=False)}\n\n"
 
         final_data = {
             "id": response_id,
@@ -457,6 +483,7 @@ async def oai_chat_completions(request: Request) -> Union[JSONResponse, Streamin
 
     Streams upstream events by default. Pass stream=false to wait for a complete
     JSON response. Accepts input_file content parts (file_data, file_url, file_id).
+    Streaming clients may opt into progress chunks with perplexity.include_progress.
     """
     auth_error = _verify_auth(request)
     if auth_error:
@@ -470,6 +497,7 @@ async def oai_chat_completions(request: Request) -> Union[JSONResponse, Streamin
     model_id = body.get("model")
     messages = body.get("messages", [])
     stream = body.get("stream", True)
+    perplexity_options = body.get("perplexity", {})
 
     if not model_id:
         return _create_error_response("model is required", "invalid_request_error", 400)
@@ -479,6 +507,17 @@ async def oai_chat_completions(request: Request) -> Union[JSONResponse, Streamin
     if not isinstance(stream, bool):
         return _create_error_response(
             "stream must be a boolean", "invalid_request_error", 400
+        )
+    if not isinstance(perplexity_options, dict):
+        return _create_error_response(
+            "perplexity must be an object", "invalid_request_error", 400
+        )
+    include_progress = perplexity_options.get("include_progress", False)
+    if not isinstance(include_progress, bool):
+        return _create_error_response(
+            "perplexity.include_progress must be a boolean",
+            "invalid_request_error",
+            400,
         )
 
     try:
@@ -522,7 +561,14 @@ async def oai_chat_completions(request: Request) -> Union[JSONResponse, Streamin
 
     if stream:
         return await _stream_chat_response(
-            query, mode, model, model_id, response_id, created, files
+            query,
+            mode,
+            model,
+            model_id,
+            response_id,
+            created,
+            files,
+            include_progress=include_progress,
         )
     else:
         return await _non_stream_chat_response(

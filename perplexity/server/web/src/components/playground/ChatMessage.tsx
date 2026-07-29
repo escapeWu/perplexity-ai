@@ -2,6 +2,7 @@ import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { ChatMessage as ChatMessageType, Source } from 'lib/api'
+import { ProgressTimeline } from './ProgressTimeline'
 
 interface SourcesListProps {
   sources: Source[]
@@ -102,7 +103,8 @@ function getTextContent(content: ChatMessageType['content']): string {
 export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
   const isUser = message.role === 'user'
   const textContent = getTextContent(message.content)
-  const isError = message.role === 'assistant' && textContent.startsWith('Error:')
+  const isError =
+    message.role === 'assistant' && (Boolean(message.error) || textContent.startsWith('Error:'))
   const showSources = !isUser && !isError && message.sources && message.sources.length > 0
 
   return (
@@ -143,8 +145,12 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
                   )}
                 </span>
               ) : (
-                <div className="markdown-content">
-                  <ReactMarkdown
+                <div>
+                  {message.progress && message.progress.length > 0 && (
+                    <ProgressTimeline progress={message.progress} />
+                  )}
+                  <div className="markdown-content">
+                    <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
                     components={{
                       // Headers - Clean style for assistant
@@ -242,9 +248,15 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
                       ),
                       em: ({ children }) => <em className="italic text-gray-400">{children}</em>,
                     }}
-                  >
-                    {textContent}
-                  </ReactMarkdown>
+                    >
+                      {textContent}
+                    </ReactMarkdown>
+                  </div>
+                  {message.error && !textContent.startsWith('Error:') && (
+                    <div className="mt-3 border border-red-900 bg-red-950/30 px-3 py-2 font-mono text-xs text-red-400">
+                      Error: {message.error}
+                    </div>
+                  )}
                 </div>
               )}
               {isStreaming && (

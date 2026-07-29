@@ -72,3 +72,61 @@ async def test_async_client_uses_canonical_model_mapping(
     await client.search("model mapping probe", mode=mode, model=model, stream=True)
 
     assert session.requests[0]["json"]["params"]["model_preference"] == slug
+
+
+@pytest.mark.parametrize(
+    ("follow_up", "expected"),
+    [
+        (None, "home"),
+        ({"attachments": [], "backend_uuid": "backend-id"}, "followup"),
+    ],
+)
+def test_sync_client_uses_browser_query_source(
+    follow_up: dict[str, Any] | None, expected: str
+) -> None:
+    session = RecordingSyncSession()
+    client = SyncClient.__new__(SyncClient)
+    client.session = session
+    client.own = True
+    client.copilot = float("inf")
+    client.file_upload = float("inf")
+
+    stream = client.search(
+        "query source probe",
+        mode="pro",
+        model="gpt-5.6-terra",
+        follow_up=follow_up,
+        stream=True,
+    )
+    list(stream)
+
+    assert session.requests[0]["json"]["params"]["query_source"] == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("follow_up", "expected"),
+    [
+        (None, "home"),
+        ({"attachments": [], "backend_uuid": "backend-id"}, "followup"),
+    ],
+)
+async def test_async_client_uses_browser_query_source(
+    follow_up: dict[str, Any] | None, expected: str
+) -> None:
+    session = RecordingAsyncSession()
+    client = AsyncClient.__new__(AsyncClient)
+    client.session = session
+    client.own = True
+    client.copilot = float("inf")
+    client.file_upload = float("inf")
+
+    await client.search(
+        "query source probe",
+        mode="pro",
+        model="gpt-5.6-terra",
+        follow_up=follow_up,
+        stream=True,
+    )
+
+    assert session.requests[0]["json"]["params"]["query_source"] == expected
