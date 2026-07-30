@@ -5,26 +5,35 @@ This module provides helper functions for validation, OpenAI-compatible API,
 and other common operations used by the server.
 """
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 try:
     from ..config import (
-        MODEL_MAPPINGS,
         SEARCH_MODES,
         SEARCH_SOURCES,
     )
     from ..exceptions import ValidationError
+    from ..model_registry import (
+        get_model_registry,
+        oai_model_id,
+    )
+    from ..model_registry import sanitize_oai_model_name as _sanitize_oai_model_name
 except ImportError:
     from perplexity.config import (
-        MODEL_MAPPINGS,
         SEARCH_MODES,
         SEARCH_SOURCES,
     )
     from perplexity.exceptions import ValidationError
+    from perplexity.model_registry import (
+        get_model_registry,
+        oai_model_id,
+    )
+    from perplexity.model_registry import sanitize_oai_model_name as _sanitize_oai_model_name
 
 # ==================== OpenAI-Compatible API Helpers ====================
 
-# Cache for OAI model mapping
+# Retained as a compatibility/debug snapshot. It is rebuilt on every call so a
+# daily catalog refresh is visible immediately.
 _OAI_MODEL_MAP: Dict[str, Tuple[str, Optional[str]]] = {}
 
 
@@ -35,44 +44,25 @@ def sanitize_oai_model_name(name: str) -> str:
     - Replace spaces with dashes: "deep research" -> "deep-research"
     - Convert to lowercase
     """
-    return name.lower().replace(".", "-").replace(" ", "-")
+    return _sanitize_oai_model_name(name)
 
 
 def _oai_id(mode: str, model_name: Optional[str]) -> str:
     """Compute OAI model ID for a given mode and internal model name."""
-    if model_name is None:
-        if mode == "reasoning":
-            return "perplexity-thinking"
-        elif mode == "deep research":
-            return "perplexity-deepsearch"
-        else:  # auto, pro
-            return "perplexity-search"
-    sanitized = sanitize_oai_model_name(model_name)
-    if mode == "reasoning":
-        if sanitized.endswith("-thinking"):
-            return sanitized
-        elif sanitized.endswith("-reasoning"):
-            return sanitized[: -len("-reasoning")] + "-thinking"
-        else:
-            return sanitized + "-thinking"
-    return sanitized  # pro/auto: no suffix
+    return oai_model_id(mode, model_name)
 
 
-def build_oai_model_map() -> Dict[str, Tuple[str, Optional[str]]]:
+def build_oai_model_map(
+    subscription_tiers: Optional[Iterable[str]] = None,
+) -> Dict[str, Tuple[str, Optional[str]]]:
     """Build reverse mapping from OAI model ID to (mode, model)."""
-    mapping: Dict[str, Tuple[str, Optional[str]]] = {}
-
-    for mode in ["auto", "pro", "reasoning", "deep research"]:
-        for model_name in MODEL_MAPPINGS.get(mode, {}).keys():
-            oai_id = _oai_id(mode, model_name)
-            # pro overwrites auto for the same default "perplexity-search"
-            if oai_id not in mapping or mode == "pro":
-                mapping[oai_id] = (mode, model_name)
-
-    return mapping
+    return get_model_registry().build_oai_model_map(subscription_tiers)
 
 
-def parse_oai_model(model_id: str) -> Tuple[str, Optional[str]]:
+def parse_oai_model(
+    model_id: str,
+    subscription_tiers: Optional[Iterable[str]] = None,
+) -> Tuple[str, Optional[str]]:
     """
     Parse OAI model ID to (mode, model).
 
@@ -85,46 +75,24 @@ def parse_oai_model(model_id: str) -> Tuple[str, Optional[str]]:
     Raises:
         ValueError: If model ID is not recognized
     """
-    global _OAI_MODEL_MAP
-    if not _OAI_MODEL_MAP:
-        _OAI_MODEL_MAP = build_oai_model_map()
-
-    if model_id not in _OAI_MODEL_MAP:
-        raise ValueError(f"Unknown model: {model_id}")
-
-    return _OAI_MODEL_MAP[model_id]
+    mapping = build_oai_model_map(subscription_tiers)
+    _OAI_MODEL_MAP.clear()
+    _OAI_MODEL_MAP.update(mapping)
+    if model_id not in mapping:
+        raise ValueError(f"Unknown or unavailable model: {model_id}")
+    return mapping[model_id]
 
 
-def generate_oai_models() -> List[Dict[str, Any]]:
+def generate_oai_models(
+    subscription_tiers: Optional[Iterable[str]] = None,
+) -> List[Dict[str, Any]]:
     """
     Generate OpenAI-compatible model list from MODEL_MAPPINGS.
 
     Returns:
         List of model objects with id, object, created, owned_by fields
     """
-    models: List[Dict[str, Any]] = []
-    seen_ids: set = set()
-    created_timestamp = 1700000000  # Static timestamp
-
-    # Skip "auto" — "pro" generates the same default perplexity-search
-    for mode in ["pro", "reasoning", "deep research"]:
-        for model_name in MODEL_MAPPINGS.get(mode, {}).keys():
-            oai_id = _oai_id(mode, model_name)
-
-            if oai_id in seen_ids:
-                continue
-            seen_ids.add(oai_id)
-
-            models.append(
-                {
-                    "id": oai_id,
-                    "object": "model",
-                    "created": created_timestamp,
-                    "owned_by": "perplexity",
-                }
-            )
-
-    return models
+    return get_model_registry().generate_oai_models(subscription_tiers)
 
 
 def create_oai_error_response(message: str, error_type: str) -> Dict[str, Any]:
@@ -145,7 +113,11 @@ def create_oai_error_response(message: str, error_type: str) -> Dict[str, Any]:
 
 
 def validate_search_params(
-    mode: str, model: Optional[str], sources: list, own_account: bool = False
+    mode: str,
+    model: Optional[str],
+    sources: list,
+    own_account: bool = False,
+    subscription_tier: Optional[str] = None,
 ) -> None:
     """
     Validate search parameters.
@@ -169,13 +141,21 @@ def validate_search_params(
         )
         raise ValidationError(f"Invalid mode '{mode}'. Must be one of: {valid_modes}")
 
-    # Validate model - guard against None MODEL_MAPPINGS
+    # Validate model against the current cached catalog.
     if model is not None:
-        if MODEL_MAPPINGS is None:
-            valid_models = [None]
-        else:
-            valid_models = list(MODEL_MAPPINGS.get(mode, {}).keys())
-        if model not in valid_models:
+        try:
+            get_model_registry().resolve(
+                mode,
+                model,
+                account_tier=subscription_tier if own_account else "free",
+            )
+        except ValueError:
+            valid_models = list(
+                get_model_registry()
+                .get_model_mappings([subscription_tier or "unknown"] if own_account else [])
+                .get(mode, {})
+                .keys()
+            )
             raise ValidationError(
                 f"Invalid model '{model}' for mode '{mode}'. "
                 f"Valid models: {', '.join(str(m) for m in valid_models)}"

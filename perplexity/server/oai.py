@@ -15,11 +15,13 @@ from starlette.concurrency import iterate_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, StreamingResponse
 
-from .utils import (
-    generate_oai_models, parse_oai_model, create_oai_error_response,
-)
 from .files_store import FileEntry, get_files_store
 from .progress import ProgressTracker, make_progress_chunk
+from .utils import (
+    create_oai_error_response,
+    generate_oai_models,
+    parse_oai_model,
+)
 
 try:
     from .app import (
@@ -396,7 +398,8 @@ async def oai_list_models(request: Request) -> JSONResponse:
     if auth_error:
         return auth_error
 
-    models = generate_oai_models()
+    pool = get_pool()
+    models = generate_oai_models(pool.get_model_subscription_tiers())
     return JSONResponse({
         "object": "list",
         "data": models
@@ -521,7 +524,10 @@ async def oai_chat_completions(request: Request) -> Union[JSONResponse, Streamin
         )
 
     try:
-        mode, model = parse_oai_model(model_id)
+        mode, model = parse_oai_model(
+            model_id,
+            get_pool().get_model_subscription_tiers(),
+        )
     except ValueError as e:
         return _create_error_response(str(e), "invalid_request_error", 400)
 

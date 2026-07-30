@@ -300,6 +300,11 @@ export function TokenTable({
                     <td className="p-4 font-bold text-white">
                       <span className="text-neon-blue mr-2">&gt;</span>
                       {maskIdentifier(c.id)}
+                      {c.subscription_tier === 'max' && (
+                        <span className="ml-2 border border-neon-pink px-1 text-[9px] uppercase text-neon-pink">
+                          Max
+                        </span>
+                      )}
                     </td>
                     <td className="p-4">
                       {!c.enabled ? (

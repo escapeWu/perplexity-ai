@@ -9,7 +9,7 @@ export default defineConfig({
   plugins: [react(), tsconfigPaths()],
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
-    __REPO_URL__: JSON.stringify(pkg.homepage || 'https://github.com/helallao/perplexity-ai'),
+    __REPO_URL__: JSON.stringify(pkg.homepage || 'https://github.com/escapeWu/perplexity-ai'),
   },
   base: '/admin/',
   build: {

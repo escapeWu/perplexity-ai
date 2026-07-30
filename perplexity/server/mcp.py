@@ -8,14 +8,16 @@ import json
 from typing import Any, Dict, Iterable, List, Optional, Union
 
 try:
-    from ..config import LABS_MODELS, MODEL_MAPPINGS, SEARCH_MODES
+    from ..config import SEARCH_MODES
+    from ..model_registry import get_model_registry
 except ImportError:
-    from perplexity.config import LABS_MODELS, MODEL_MAPPINGS, SEARCH_MODES
+    from perplexity.config import SEARCH_MODES
+    from perplexity.model_registry import get_model_registry
 
 try:
-    from .app import mcp, run_query
+    from .app import get_pool, mcp, run_query
 except ImportError:
-    from perplexity.server.app import mcp, run_query
+    from perplexity.server.app import get_pool, mcp, run_query
 
 # If mcp is None (e.g. testing env), create a dummy decorator
 if mcp is None:
@@ -27,12 +29,13 @@ if mcp is None:
     mcp = DummyMCP()
 
 
-def list_models_tool() -> Dict[str, Any]:
-    """Return supported modes, model mappings, and Labs models."""
+def list_models_tool(
+    subscription_tiers: Optional[Iterable[str]] = None,
+) -> Dict[str, Any]:
+    """Return supported modes and model mappings."""
     return {
         "modes": SEARCH_MODES,
-        "model_mappings": MODEL_MAPPINGS,
-        "labs_models": LABS_MODELS,
+        "model_mappings": get_model_registry().get_model_mappings(subscription_tiers),
     }
 
 
@@ -60,9 +63,9 @@ def list_models() -> Dict[str, Any]:
     当你需要了解可用的模型选项时调用此工具。
 
     Returns:
-        包含 modes (搜索模式)、model_mappings (模型映射) 和 labs_models (实验模型) 的字典
+        包含 modes (搜索模式) 和 model_mappings (模型映射) 的字典
     """
-    return list_models_tool()
+    return list_models_tool(get_pool().get_model_subscription_tiers())
 
 
 @mcp.tool

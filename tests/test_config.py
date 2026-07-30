@@ -7,8 +7,12 @@ def test_api_endpoints_structure() -> None:
     print("console.log -> validating API endpoints and versions")
     assert config.API_BASE_URL.startswith("https://")
     assert config.API_VERSION.count(".") >= 1
+    assert config.ENDPOINT_AUTH_SESSION.startswith(config.API_BASE_URL)
     assert config.ENDPOINT_SSE_ASK.startswith(config.API_BASE_URL)
-    assert config.EMAILNATOR_BASE_URL in config.EMAILNATOR_GENERATE_ENDPOINT
+    assert config.ENDPOINT_UPLOAD_URL.startswith(config.API_BASE_URL)
+    assert config.ENDPOINT_MODELS_CONFIG.startswith(config.API_BASE_URL)
+    assert "config/v2" in config.ENDPOINT_MODELS_CONFIG
+    assert config.MODEL_CONFIG_CACHE_TTL >= 60
 
 
 def test_search_modes_and_models() -> None:

@@ -1,13 +1,10 @@
 """Utility tests with console-like output for user visibility."""
 
-import time
-
 import pytest
 
 from perplexity.config import MODEL_MAPPINGS
 from perplexity.exceptions import ValidationError
 from perplexity.server.utils import sanitize_query, validate_search_params
-from perplexity.utils import retry_with_backoff
 
 
 def test_sanitize_query_trims_and_validates() -> None:
@@ -32,26 +29,3 @@ def test_validate_search_params_accepts_all_configured_models() -> None:
 
     with pytest.raises(ValidationError):
         validate_search_params("pro", "gpt-5.4", ["web"], own_account=True)
-
-
-def test_retry_with_backoff_eventually_succeeds(monkeypatch) -> None:
-    print("console.log -> exercising retry_with_backoff decorator")
-    sleep_calls = []
-
-    def fake_sleep(seconds: float) -> None:
-        sleep_calls.append(seconds)
-
-    monkeypatch.setattr(time, "sleep", fake_sleep)
-
-    attempts = {"count": 0}
-
-    @retry_with_backoff(max_attempts=3, backoff_factor=0.0)
-    def flaky_call() -> str:
-        attempts["count"] += 1
-        if attempts["count"] < 2:
-            raise RuntimeError("temporary failure")
-        return "ok"
-
-    assert flaky_call() == "ok"
-    assert attempts["count"] == 2
-    assert len(sleep_calls) == 1

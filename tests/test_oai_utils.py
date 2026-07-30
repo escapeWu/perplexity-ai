@@ -5,7 +5,6 @@ from perplexity.server import utils
 EXPECTED_OAI_MODELS = {
     "perplexity-search",
     "sonar-2",
-    "sonar",
     "gpt-5-6-terra",
     "claude-sonnet-5",
     "gemini-3-1-pro",
@@ -27,13 +26,17 @@ def test_generate_oai_models_exposes_current_non_max_lineup() -> None:
 
     assert {model["id"] for model in models} == EXPECTED_OAI_MODELS
     assert all(
-        model
-        == {
-            "id": model["id"],
-            "object": "model",
-            "created": 1700000000,
-            "owned_by": "perplexity",
+        {
+            "id",
+            "object",
+            "created",
+            "owned_by",
+            "label",
+            "description",
+            "subscription_tier",
+            "mode",
         }
+        <= model.keys()
         for model in models
     )
 
@@ -42,7 +45,7 @@ def test_oai_model_ids_round_trip_to_internal_mappings() -> None:
     expected_mapping = utils.build_oai_model_map()
     utils._OAI_MODEL_MAP.clear()
 
-    assert set(expected_mapping) == EXPECTED_OAI_MODELS
+    assert set(expected_mapping) == EXPECTED_OAI_MODELS | {"sonar"}
     for model_id, mode_and_model in expected_mapping.items():
         assert utils.parse_oai_model(model_id) == mode_and_model
 

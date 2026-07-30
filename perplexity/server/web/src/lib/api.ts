@@ -17,6 +17,7 @@ export interface ClientInfo {
   fail_count: number
   pro_fail_count: number
   last_heartbeat_at: string | null
+  subscription_tier: 'free' | 'pro' | 'max' | 'unknown'
 }
 
 export interface HeartbeatConfig {
@@ -216,6 +217,10 @@ export interface OAIModel {
   object: string
   created: number
   owned_by: string
+  label?: string
+  description?: string
+  subscription_tier?: 'free' | 'pro' | 'max'
+  mode?: 'auto' | 'pro' | 'reasoning' | 'deep research'
 }
 
 export interface OAIModelsResponse {

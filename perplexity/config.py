@@ -42,15 +42,9 @@ if SOCKS_PROXY:
 else:
     _logger.debug("SOCKS_PROXY not configured, will use direct connection")
 
-# Token Pool Configuration
-# Path to JSON config file containing multiple tokens for load balancing
-# Format: {"tokens": [{"id": "user1", "csrf_token": "xxx", "session_token": "yyy"}, ...]}
-PPLX_TOKEN_POOL_CONFIG: Optional[str] = os.getenv("PPLX_TOKEN_POOL_CONFIG", None)
-
 # API Configuration
 API_BASE_URL = "https://www.perplexity.ai"
 API_VERSION = "2.18"
-API_TIMEOUT = 30
 
 # Search Request Timeouts (seconds)
 # Perplexity 的 SSE 响应总时长在不同模式下差异很大：
@@ -119,20 +113,20 @@ def get_search_timeout(mode: str) -> int:
 
 # Endpoints
 ENDPOINT_AUTH_SESSION = f"{API_BASE_URL}/api/auth/session"
-ENDPOINT_AUTH_SIGNIN = f"{API_BASE_URL}/api/auth/signin/email"
 ENDPOINT_SSE_ASK = f"{API_BASE_URL}/rest/sse/perplexity_ask"
 ENDPOINT_UPLOAD_URL = f"{API_BASE_URL}/rest/uploads/create_upload_url"
-ENDPOINT_SOCKET_IO = f"{API_BASE_URL}/socket.io/"
+ENDPOINT_MODELS_CONFIG = os.getenv(
+    "PPLX_MODELS_CONFIG_URL",
+    f"{API_BASE_URL}/rest/models/config/v2?version={API_VERSION}&source=default",
+)
 
-# Emailnator Configuration
-EMAILNATOR_BASE_URL = "https://www.emailnator.com"
-EMAILNATOR_GENERATE_ENDPOINT = f"{EMAILNATOR_BASE_URL}/generate-email"
-EMAILNATOR_MESSAGE_LIST_ENDPOINT = f"{EMAILNATOR_BASE_URL}/message-list"
-
-# Account Limits
-DEFAULT_COPILOT_QUERIES = 5
-DEFAULT_FILE_UPLOADS = 10
-ACCOUNT_TIMEOUT = 20  # seconds to wait for email
+# The upstream catalog changes independently of this package. Keep a local
+# server-side copy and refresh it once a day.
+MODEL_CONFIG_CACHE_TTL = _read_int_env(
+    "PPLX_MODEL_CACHE_TTL",
+    24 * 60 * 60,
+    min_value=60,
+)
 
 # Search Modes
 SEARCH_MODES = ["auto", "pro", "reasoning", "deep research"]
@@ -165,15 +159,6 @@ MODEL_MAPPINGS: Dict[str, Dict[Optional[str], str]] = {
     "deep research": {None: "pplx_alpha"},
 }
 
-# Labs Models
-LABS_MODELS = [
-    "r1-1776",
-    "sonar-pro",
-    "sonar",
-    "sonar-reasoning-pro",
-    "sonar-reasoning",
-]
-
 # HTTP Headers Template
 DEFAULT_HEADERS = {
     "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",  # noqa: E501
@@ -196,31 +181,6 @@ DEFAULT_HEADERS = {
     "sec-fetch-user": "?1",
     "upgrade-insecure-requests": "1",
     "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",  # noqa: E501
-}
-
-# Emailnator Headers Template
-EMAILNATOR_HEADERS = {
-    "accept": "application/json, text/plain, */*",
-    "accept-language": "en-US,en;q=0.9",
-    "content-type": "application/json",
-    "dnt": "1",
-    "origin": EMAILNATOR_BASE_URL,
-    "priority": "u=1, i",
-    "referer": f"{EMAILNATOR_BASE_URL}/",
-    "sec-ch-ua": '"Not;A=Brand";v="24", "Chromium";v="128"',
-    "sec-ch-ua-arch": '"x86"',
-    "sec-ch-ua-bitness": '"64"',
-    "sec-ch-ua-full-version": '"128.0.6613.120"',
-    "sec-ch-ua-full-version-list": '"Not;A=Brand";v="24.0.0.0", "Chromium";v="128.0.6613.120"',  # noqa: E501
-    "sec-ch-ua-mobile": "?0",
-    "sec-ch-ua-model": '""',
-    "sec-ch-ua-platform": '"Windows"',
-    "sec-ch-ua-platform-version": '"19.0.0"',
-    "sec-fetch-dest": "empty",
-    "sec-fetch-mode": "cors",
-    "sec-fetch-site": "same-origin",
-    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",  # noqa: E501
-    "x-requested-with": "XMLHttpRequest",
 }
 
 # Allowed file extensions for upload (documents, code, images, audio, video)
@@ -327,26 +287,12 @@ ALLOWED_FILE_EXTENSIONS: frozenset = frozenset(
     }
 )
 
-# Retry Configuration
-RETRY_MAX_ATTEMPTS = 3
-RETRY_BACKOFF_FACTOR = 2
-RETRY_EXCEPTIONS = (ConnectionError, TimeoutError)
-
 # Logging Configuration
 LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 LOG_LEVEL = "DEBUG"
 LOG_FILE = "perplexity.log"
 
-# Rate Limiting
-RATE_LIMIT_MIN_DELAY = 1.0  # seconds
-RATE_LIMIT_MAX_DELAY = 3.0  # seconds
-RATE_LIMIT_ENABLED = True
-
 # Admin Authentication
 # Set this environment variable to enable admin authentication for pool management
 # If not set, admin operations will be disabled for security
 ADMIN_TOKEN: Optional[str] = os.getenv("PPLX_ADMIN_TOKEN", None)
-
-# Validation Patterns
-EMAIL_SUBJECT_PATTERN = "Sign in to Perplexity"
-SIGNIN_URL_PATTERN = r'"(https://www\.perplexity\.ai/api/auth/callback/email\?callbackUrl=.*?)"'

@@ -4,7 +4,7 @@
 
 [![中文文档](https://img.shields.io/badge/docs-中文-blue.svg)](README-zh.md)
 
-An unofficial Python API for Perplexity.ai that exposes search capabilities via MCP (Model Context Protocol) and OpenAI-compatible endpoints. Supports multi-token pools for load balancing, health monitoring, and various search modes.
+An unofficial Perplexity.ai server that exposes search capabilities through MCP (Model Context Protocol) and OpenAI-compatible endpoints. Supports multi-token pools for load balancing, health monitoring, and various search modes.
 
 ## Screenshots
 **ADMIN Panel**
@@ -22,7 +22,8 @@ An unofficial Python API for Perplexity.ai that exposes search capabilities via 
 <img width="1894" height="989" alt="image" src="https://github.com/user-attachments/assets/4a495432-8305-4820-8b4a-d7e54986ba45" />
 
 ## Changelog
-+ **2026-07-29**: v1.12.0 — Add optional structured Perplexity progress events and a live Playground stage timeline, preserve partial output across stream failures and cancellation, and align sync/async requests with the browser `query_source` required by current models.
++ **2026-07-30**: v1.13.0 — Add a daily cached Perplexity model catalog with Pro/Max-aware discovery and account routing, expose live model metadata in the Playground, and remove unused client-side SDK, account automation, Labs, examples, and legacy assets for server-only deployment.
++ **2026-07-29**: v1.12.0 — Add optional structured Perplexity progress events and a live Playground stage timeline, preserve partial output across stream failures and cancellation, and align service requests with the browser `query_source` required by current models.
 + **2026-07-29**: v1.11.0 — Stream OpenAI-compatible chat completions from upstream in real time by default, retain opt-in complete JSON responses with `stream: false`, add WebUI stream mode controls and working cancellation, and harden stream failover and cleanup.
 + **2026-07-29**: v1.10.1 — Close synchronous streaming responses reliably, move user-info network calls outside the pool lock, use starvation-free smooth weighted round-robin scheduling, sync runtime dependencies, and make Playground cancellation abort active requests.
 + **2026-07-28**: v1.10.0 — Add the current non-Max model lineup (Sonar 2, GPT-5.6 Terra, Gemini 3.1 Pro, Claude Sonnet 5, Kimi K3, GLM 5.2, Grok 4.5, and Nemotron 3 Ultra), centralize model mappings, and sync MCP/OpenAI discovery, tests, and docs.
@@ -145,8 +146,9 @@ services:
       - PPLX_ADMIN_TOKEN=${PPLX_ADMIN_TOKEN:-}
       # - SOCKS_PROXY=${SOCKS_PROXY:-}
     volumes:
-      # 挂载 token 池配置文件
+      # Mount the token pool and persistent daily model cache
       - ./token_pool_config.json:/app/token_pool_config.json
+      - ./data:/app/data
     restart: unless-stopped
 ```
 
@@ -156,6 +158,9 @@ services:
 MCP_PORT=8000
 MCP_TOKEN=sk-123456
 PPLX_ADMIN_TOKEN=your-admin-token
+# Optional outside Docker:
+# PPLX_MODEL_CACHE_PATH=./data/model_config_v2.json
+# PPLX_MODEL_CACHE_TTL=86400
 ```
 
 ## Multi-Token Pool (Load Balancing)
@@ -239,27 +244,19 @@ understand the extension can leave it disabled.
 
 ### Supported Models
 
-| Model ID | Mode | Description |
-|----------|------|-------------|
-| **Search Mode** | | |
-| `perplexity-search` | pro | Default search model |
-| `sonar-2` | pro | Sonar 2 |
-| `sonar` | pro | Legacy alias for Sonar 2 |
-| `gpt-5-6-terra` | pro | GPT-5.6 Terra |
-| `claude-sonnet-5` | pro | Claude Sonnet 5 |
-| `gemini-3-1-pro` | pro | Gemini 3.1 Pro |
-| `grok-4-5` | pro | Grok 4.5 |
-| **Thinking Mode** | | |
-| `perplexity-thinking` | reasoning | Default thinking model |
-| `gpt-5-6-terra-thinking` | reasoning | GPT-5.6 Terra Thinking |
-| `claude-sonnet-5-thinking` | reasoning | Claude Sonnet 5 Thinking |
-| `gemini-3-1-pro-thinking` | reasoning | Gemini 3.1 Pro Thinking |
-| `kimi-k3-thinking` | reasoning | Kimi K3 |
-| `glm-5-2-thinking` | reasoning | GLM 5.2 |
-| `grok-4-5-thinking` | reasoning | Grok 4.5 Thinking |
-| `nemotron-3-ultra-thinking` | reasoning | Nemotron 3 Ultra |
-| **Deep Research Mode** | | |
-| `perplexity-deepsearch` | deep research | Deep research model |
+The service refreshes Perplexity's public v2 model catalog every 24 hours and
+persists it on the server. `/v1/models`, MCP `list_models`, validation, and
+upstream `model_preference` routing all use that same catalog.
+
+- Pro accounts expose Pro models.
+- Max accounts expose both Pro and Max models.
+- Max-only requests are routed only to Max accounts.
+- Browser-agent entries are excluded because they do not use the search API.
+- `perplexity-search`, `perplexity-thinking`, and `perplexity-deepsearch`
+  remain stable default IDs. Use `GET /v1/models` for the current full list.
+
+If the daily refresh fails, the last valid on-disk catalog remains active.
+Static built-in mappings are used only when no valid cache exists.
 
 ### Client Configuration (e.g., ChatBox)
 
@@ -285,9 +282,9 @@ perplexity/
 │   └── web/                 # Web UI (React + Vite)
 ├── client.py                # Low-level API client
 ├── config.py                # Config constants
+├── model_registry.py        # Dynamic tier-aware model catalog and cache
 ├── exceptions.py            # Custom exceptions
-├── logger.py                # Logging config
-└── utils.py                 # General utils
+└── logger.py                # Logging config
 ```
 
 ## Claude Code Integration

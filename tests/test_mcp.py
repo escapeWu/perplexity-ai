@@ -136,7 +136,6 @@ class TestListModels:
             # 验证返回数据包含必要字段
             assert "modes" in tool_result
             assert "model_mappings" in tool_result
-            assert "labs_models" in tool_result
 
             # 验证 modes 列表
             modes = tool_result["modes"]
@@ -150,14 +149,8 @@ class TestListModels:
             assert "pro" in model_mappings
             assert "reasoning" in model_mappings
 
-            # 验证 labs_models
-            labs_models = tool_result["labs_models"]
-            assert len(labs_models) > 0
-            assert "sonar" in labs_models
-
             print(f"console.log -> list_models 返回结构正确")
             print(f"console.log -> modes: {modes}")
-            print(f"console.log -> labs_models: {labs_models}")
 
 
 class TestSearchMode:

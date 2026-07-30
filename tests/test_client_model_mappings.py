@@ -1,4 +1,4 @@
-"""Verify both clients use the canonical model mapping in request payloads."""
+"""Verify the service client uses canonical model mappings and browser request metadata."""
 
 from typing import Any
 
@@ -6,7 +6,6 @@ import pytest
 
 from perplexity.client import Client as SyncClient
 from perplexity.config import MODEL_MAPPINGS
-from perplexity_async.client import Client as AsyncClient
 
 
 class RecordingSyncSession:
@@ -24,15 +23,6 @@ class EmptySyncResponse:
 
     def close(self) -> None:
         pass
-
-
-class RecordingAsyncSession:
-    def __init__(self) -> None:
-        self.requests: list[dict[str, Any]] = []
-
-    async def post(self, url: str, **kwargs: Any) -> object:
-        self.requests.append({"url": url, **kwargs})
-        return object()
 
 
 MODEL_CASES = [
@@ -53,23 +43,6 @@ def test_sync_client_uses_canonical_model_mapping(mode: str, model: str | None, 
 
     stream = client.search("model mapping probe", mode=mode, model=model, stream=True)
     list(stream)
-
-    assert session.requests[0]["json"]["params"]["model_preference"] == slug
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(("mode", "model", "slug"), MODEL_CASES)
-async def test_async_client_uses_canonical_model_mapping(
-    mode: str, model: str | None, slug: str
-) -> None:
-    session = RecordingAsyncSession()
-    client = AsyncClient.__new__(AsyncClient)
-    client.session = session
-    client.own = True
-    client.copilot = float("inf")
-    client.file_upload = float("inf")
-
-    await client.search("model mapping probe", mode=mode, model=model, stream=True)
 
     assert session.requests[0]["json"]["params"]["model_preference"] == slug
 
@@ -99,34 +72,5 @@ def test_sync_client_uses_browser_query_source(
         stream=True,
     )
     list(stream)
-
-    assert session.requests[0]["json"]["params"]["query_source"] == expected
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("follow_up", "expected"),
-    [
-        (None, "home"),
-        ({"attachments": [], "backend_uuid": "backend-id"}, "followup"),
-    ],
-)
-async def test_async_client_uses_browser_query_source(
-    follow_up: dict[str, Any] | None, expected: str
-) -> None:
-    session = RecordingAsyncSession()
-    client = AsyncClient.__new__(AsyncClient)
-    client.session = session
-    client.own = True
-    client.copilot = float("inf")
-    client.file_upload = float("inf")
-
-    await client.search(
-        "query source probe",
-        mode="pro",
-        model="gpt-5.6-terra",
-        follow_up=follow_up,
-        stream=True,
-    )
 
     assert session.requests[0]["json"]["params"]["query_source"] == expected

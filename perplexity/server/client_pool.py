@@ -7,8 +7,8 @@ Supports heartbeat testing to automatically verify token health.
 
 import asyncio
 import json
-import pathlib
 import os
+import pathlib
 import threading
 import time
 from datetime import datetime, timezone
@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from ..client import Client
 from ..config import SOCKS_PROXY
 from ..logger import get_logger
+from ..model_registry import account_supports_tier, normalize_subscription_tier
 
 logger = get_logger("server.client_pool")
 
@@ -46,6 +47,10 @@ class ClientWrapper:
         self.enabled = True  # Whether this client is enabled for use
         self.state = "unknown"  # Token state: "normal", "offline", "downgrade", "unknown"
         self.last_heartbeat: Optional[float] = None  # Last heartbeat check timestamp
+        self.subscription_tier = normalize_subscription_tier(
+            getattr(client, "subscription_tier", None),
+            own_account=bool(getattr(client, "own", False)),
+        )
 
     def is_available(self) -> bool:
         """Check if the client is currently available (enabled and not in backoff)."""
@@ -103,11 +108,27 @@ class ClientWrapper:
             "request_count": self.request_count,
             "weight": self.weight,
             "pro_fail_count": self.pro_fail_count,
+            "subscription_tier": self.subscription_tier,
         }
 
     def get_user_info(self) -> Dict[str, Any]:
         """Get user session information for this client."""
         return self.client.get_user_info()
+
+    def refresh_subscription_tier(self, user_info: Optional[Dict[str, Any]] = None) -> str:
+        """Refresh the routing tier after a session lookup."""
+        raw_tier = getattr(self.client, "subscription_tier", None)
+        if isinstance(user_info, dict):
+            user = user_info.get("user")
+            if isinstance(user, dict):
+                raw_tier = user.get("subscription_tier", raw_tier)
+            else:
+                raw_tier = user_info.get("subscription_tier", raw_tier)
+        self.subscription_tier = normalize_subscription_tier(
+            raw_tier,
+            own_account=bool(getattr(self.client, "own", False)),
+        )
+        return self.subscription_tier
 
 
 class ClientPool:
@@ -144,11 +165,9 @@ class ClientPool:
         # Timeouts configuration (seconds). Defaults come from env vars / built-in defaults.
         # Loaded from token_pool_config.json["timeouts"] if present, then can be hot-updated
         # via admin API /timeouts/config (which also persists back to the JSON file).
-        from ..config import (
-            SEARCH_TIMEOUT as _SEARCH_TIMEOUT_DEFAULT,
-            DEEP_RESEARCH_TIMEOUT as _DEEP_RESEARCH_TIMEOUT_DEFAULT,
-            FILE_UPLOAD_TIMEOUT as _FILE_UPLOAD_TIMEOUT_DEFAULT,
-        )
+        from ..config import DEEP_RESEARCH_TIMEOUT as _DEEP_RESEARCH_TIMEOUT_DEFAULT
+        from ..config import FILE_UPLOAD_TIMEOUT as _FILE_UPLOAD_TIMEOUT_DEFAULT
+        from ..config import SEARCH_TIMEOUT as _SEARCH_TIMEOUT_DEFAULT
         self._timeouts_config: Dict[str, Any] = {
             "search": _SEARCH_TIMEOUT_DEFAULT,
             "deep_research": _DEEP_RESEARCH_TIMEOUT_DEFAULT,
@@ -268,9 +287,7 @@ class ClientPool:
         self.clients[client_id] = wrapper
         self._rotation_order.append(client_id)
 
-    def add_client(
-        self, client_id: str, csrf_token: str, session_token: str
-    ) -> Dict[str, Any]:
+    def add_client(self, client_id: str, csrf_token: str, session_token: str) -> Dict[str, Any]:
         """
         Add a new client to the pool at runtime.
 
@@ -284,12 +301,23 @@ class ClientPool:
                     "message": f"Client '{client_id}' already exists",
                 }
 
-            cookies = {
-                "next-auth.csrf-token": csrf_token,
-                "__Secure-next-auth.session-token": session_token,
-            }
-            self._add_client_internal(client_id, cookies)
+        cookies = {
+            "next-auth.csrf-token": csrf_token,
+            "__Secure-next-auth.session-token": session_token,
+        }
+        # Client construction performs an auth-session request to discover the
+        # subscription tier. Keep that network I/O outside the pool lock.
+        client = Client(cookies)
 
+        with self._lock:
+            # A concurrent add may have won while the session request ran.
+            if client_id in self.clients:
+                return {
+                    "status": "error",
+                    "message": f"Client '{client_id}' already exists",
+                }
+            self.clients[client_id] = ClientWrapper(client, client_id)
+            self._rotation_order.append(client_id)
             # Update mode if transitioning from single/anonymous to pool
             if self._mode in ("single", "anonymous") and len(self.clients) > 1:
                 self._mode = "pool"
@@ -353,6 +381,7 @@ class ClientPool:
                     "available": wrapper.is_available(),
                     "enabled": wrapper.enabled,
                     "weight": wrapper.weight,
+                    "subscription_tier": wrapper.subscription_tier,
                 }
                 for wrapper in self.clients.values()
             ]
@@ -416,7 +445,9 @@ class ClientPool:
             return {"status": "ok", "message": f"Client '{client_id}' reset successfully"}
 
     def get_client(
-        self, exclude_ids: Optional[set[str]] = None
+        self,
+        exclude_ids: Optional[set[str]] = None,
+        required_tier: Optional[str] = None,
     ) -> Tuple[Optional[str], Optional[Client]]:
         """
         Get the next available client using weighted round-robin selection.
@@ -437,7 +468,9 @@ class ClientPool:
             available_wrappers = [
                 self.clients[client_id]
                 for client_id in self._rotation_order
-                if client_id not in excluded and self.clients[client_id].is_available()
+                if client_id not in excluded
+                and account_supports_tier(self.clients[client_id].subscription_tier, required_tier)
+                and self.clients[client_id].is_available()
             ]
 
             if available_wrappers:
@@ -456,11 +489,31 @@ class ClientPool:
                 )
                 return selected.id, selected.client
 
-            # No available clients - return the one that will be available soonest
-            soonest_wrapper = min(
-                self.clients.values(), key=lambda w: w.available_after
-            )
+            # No currently available matching client. Return the matching
+            # account that will be available soonest, if one exists.
+            eligible_wrappers = [
+                self.clients[client_id]
+                for client_id in self._rotation_order
+                if client_id not in excluded
+                and account_supports_tier(self.clients[client_id].subscription_tier, required_tier)
+            ]
+            if not eligible_wrappers:
+                return None, None
+            soonest_wrapper = min(eligible_wrappers, key=lambda w: w.available_after)
             return soonest_wrapper.id, None
+
+    def get_model_subscription_tiers(self) -> set[str]:
+        """Return model tiers supported by enabled configured accounts."""
+        tiers: set[str] = set()
+        with self._lock:
+            for wrapper in self.clients.values():
+                if not wrapper.enabled or not bool(getattr(wrapper.client, "own", False)):
+                    continue
+                if wrapper.subscription_tier == "max":
+                    tiers.update({"pro", "max"})
+                elif wrapper.subscription_tier in {"pro", "unknown"}:
+                    tiers.add("pro")
+        return tiers
 
     def mark_client_success(self, client_id: str) -> None:
         """Mark a client as successful after a request."""
@@ -540,7 +593,11 @@ class ClientPool:
             wrapper = self.clients.get(client_id)
             if not wrapper:
                 return {"status": "error", "message": f"Client '{client_id}' not found"}
-        return {"status": "ok", "data": wrapper.get_user_info()}
+        user_info = wrapper.get_user_info()
+        with self._lock:
+            if self.clients.get(client_id) is wrapper:
+                wrapper.refresh_subscription_tier(user_info)
+        return {"status": "ok", "data": user_info}
 
     def get_client_state(self, client_id: str) -> str:
         """
@@ -584,9 +641,13 @@ class ClientPool:
         with self._lock:
             clients = list(self.clients.items())
 
-        result = {
-            client_id: wrapper.get_user_info() for client_id, wrapper in clients
-        }
+        result = {}
+        for client_id, wrapper in clients:
+            user_info = wrapper.get_user_info()
+            result[client_id] = user_info
+            with self._lock:
+                if self.clients.get(client_id) is wrapper:
+                    wrapper.refresh_subscription_tier(user_info)
         return {"status": "ok", "data": result}
 
     # ==================== Heartbeat Methods ====================
@@ -885,6 +946,9 @@ class ClientPool:
             logger.debug(f"[{client_id}] Fetching user_info from auth session...")
             user_info = await asyncio.to_thread(client.get_user_info)
             logger.debug(f"[{client_id}] user_info response: {user_info}")
+            with self._lock:
+                if self.clients.get(client_id) is wrapper:
+                    wrapper.refresh_subscription_tier(user_info)
 
             is_logged_in = user_info and user_info.get("user")
             logger.debug(f"[{client_id}] is_logged_in={is_logged_in}")

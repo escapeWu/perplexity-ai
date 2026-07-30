@@ -4,7 +4,7 @@ from typing import Any, Dict, List
 
 import pytest
 
-from perplexity.config import LABS_MODELS, MODEL_MAPPINGS, SEARCH_MODES
+from perplexity.config import MODEL_MAPPINGS, SEARCH_MODES
 from perplexity.server import mcp as mcp_module
 
 
@@ -12,7 +12,6 @@ def test_list_models_tool_uses_canonical_config() -> None:
     assert mcp_module.list_models_tool() == {
         "modes": SEARCH_MODES,
         "model_mappings": MODEL_MAPPINGS,
-        "labs_models": LABS_MODELS,
     }
 
 

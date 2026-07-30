@@ -32,7 +32,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # 先复制依赖文件，利用 Docker 缓存
 COPY pyproject.toml README.md ./
 COPY perplexity/ ./perplexity/
-COPY perplexity_async/ ./perplexity_async/
 
 # 安装到独立目录，方便后续复制
 RUN pip install --no-cache-dir --prefix=/install .
@@ -58,6 +57,8 @@ COPY --from=frontend-builder /frontend/dist ./perplexity/server/web/dist
 
 # 设置默认 token pool 配置路径（通过 volume 挂载）
 ENV PPLX_TOKEN_POOL_CONFIG=/app/token_pool_config.json
+# 每日模型目录缓存（/app/data 应挂载为持久卷）
+ENV PPLX_MODEL_CACHE_PATH=/app/data/model_config_v2.json
 
 # 暴露端口
 EXPOSE 8000

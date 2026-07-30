@@ -2,23 +2,27 @@
 FastMCP application instance and shared utilities.
 """
 
+import asyncio
 import os
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Union
 
 from fastmcp import FastMCP
-from fastmcp.server.middleware import Middleware, MiddlewareContext
 from fastmcp.server.dependencies import get_http_headers
+from fastmcp.server.middleware import Middleware, MiddlewareContext
 from starlette.applications import Starlette
 
-from .client_pool import ClientPool
 from ..client import Client
 from ..config import SEARCH_LANGUAGES
 from ..exceptions import ValidationError
 from ..logger import get_logger
-
+from ..model_registry import get_model_registry
+from .client_pool import ClientPool
 from .utils import (
-    sanitize_query, validate_file_data, validate_query_limits, validate_search_params,
+    sanitize_query,
+    validate_file_data,
+    validate_query_limits,
+    validate_search_params,
 )
 
 logger = get_logger("server.app")
@@ -41,15 +45,30 @@ def get_pool() -> ClientPool:
 @asynccontextmanager
 async def app_lifespan(server: FastMCP):
     """Application lifespan handler for startup/shutdown events."""
-    # Startup: Initialize pool and start heartbeat
+    # Startup: initialize the pool and refresh the persisted model catalog.
     pool = get_pool()
+    registry = get_model_registry()
+    await asyncio.to_thread(registry.refresh_if_stale)
+
+    async def refresh_models_loop() -> None:
+        # Check hourly; the registry performs a network request only after its
+        # 24-hour TTL expires. A failed refresh is retried on the next check.
+        while True:
+            await asyncio.sleep(min(registry.ttl_seconds, 60 * 60))
+            await asyncio.to_thread(registry.refresh_if_stale)
+
+    model_refresh_task = asyncio.create_task(refresh_models_loop())
     if pool.is_heartbeat_enabled():
         pool.start_heartbeat()
         logger.info("Heartbeat started via lifespan")
-    yield
-    # Shutdown: Stop heartbeat gracefully
-    pool.stop_heartbeat()
-    logger.info("Heartbeat stopped via lifespan")
+    try:
+        yield
+    finally:
+        model_refresh_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await model_refresh_task
+        pool.stop_heartbeat()
+        logger.info("Heartbeat and model catalog refresh stopped via lifespan")
 
 
 class AuthMiddleware(Middleware):
@@ -73,14 +92,6 @@ mcp = FastMCP("perplexity-mcp", lifespan=app_lifespan)
 
 # 添加认证中间件
 mcp.add_middleware(AuthMiddleware(MCP_TOKEN))
-
-
-def get_pool() -> ClientPool:
-    """Get or create the singleton ClientPool instance."""
-    global _pool
-    if _pool is None:
-        _pool = ClientPool()
-    return _pool
 
 
 def normalize_files(files: Optional[Union[Dict[str, Any], Iterable[str]]]) -> Dict[str, Any]:
@@ -212,12 +223,16 @@ def run_query_stream(
     chosen_sources = sources or ["web"]
     if SEARCH_LANGUAGES is None or language not in SEARCH_LANGUAGES:
         valid_langs = ", ".join(SEARCH_LANGUAGES) if SEARCH_LANGUAGES else "en-US"
-        raise ValidationError(
-            f"Invalid language '{language}'. Choose from: {valid_langs}"
-        )
+        raise ValidationError(f"Invalid language '{language}'. Choose from: {valid_langs}")
     normalized_files = normalize_files(files)
 
-    should_fallback = fallback_to_auto and pool.is_fallback_to_auto_enabled()
+    try:
+        required_tier = get_model_registry().required_tier(mode, model)
+    except ValueError as exc:
+        raise ValidationError(str(exc)) from exc
+    should_fallback = (
+        fallback_to_auto and pool.is_fallback_to_auto_enabled() and required_tier != "max"
+    )
     is_pro_mode = mode in ("pro", "reasoning", "deep research")
     if pool.is_incognito_enabled():
         incognito = True
@@ -231,14 +246,22 @@ def run_query_stream(
         excluded_ids = attempted_clients | {
             client_id for client_id, _, _ in skipped_downgraded_clients
         }
-        client_id, client = pool.get_client(exclude_ids=excluded_ids)
+        client_id, client = pool.get_client(
+            exclude_ids=excluded_ids,
+            required_tier=required_tier,
+        )
         if client is None or client_id is None:
             if not attempted_clients:
                 earliest = pool.get_earliest_available_time()
-                last_error = RuntimeError(
-                    "All clients are currently unavailable. "
-                    f"Earliest available at: {earliest}"
-                )
+                if required_tier == "max":
+                    last_error = RuntimeError(
+                        "No available Max account can run the requested model."
+                    )
+                else:
+                    last_error = RuntimeError(
+                        "All compatible clients are currently unavailable. "
+                        f"Earliest available at: {earliest}"
+                    )
             break
 
         client_state = pool.get_client_state(client_id)
@@ -250,10 +273,14 @@ def run_query_stream(
         attempted_clients.add(client_id)
         yielded_event = False
         try:
-            validate_search_params(mode, model, chosen_sources, own_account=client.own)
-            validate_query_limits(
-                client.copilot, client.file_upload, mode, len(normalized_files)
+            validate_search_params(
+                mode,
+                model,
+                chosen_sources,
+                own_account=client.own,
+                subscription_tier=getattr(client, "subscription_tier", None),
             )
+            validate_query_limits(client.copilot, client.file_upload, mode, len(normalized_files))
             for chunk in _iter_client_stream(
                 client,
                 clean_query,
@@ -296,9 +323,7 @@ def run_query_stream(
         best_client_id, best_client, _ = skipped_downgraded_clients[0]
         yielded_event = False
         try:
-            validate_search_params(
-                "auto", None, chosen_sources, own_account=best_client.own
-            )
+            validate_search_params("auto", None, chosen_sources, own_account=best_client.own)
             for chunk in _iter_client_stream(
                 best_client,
                 clean_query,
@@ -378,6 +403,7 @@ def run_query(
         fallback_to_auto: If True, attempt auto mode fallback when all Pro clients fail
     """
     from ..logger import get_logger
+
     logger = get_logger("server.app")
 
     pool = get_pool()
@@ -389,13 +415,18 @@ def run_query(
 
         # Ensure SEARCH_LANGUAGES is not None before using 'in'
         if SEARCH_LANGUAGES is None or language not in SEARCH_LANGUAGES:
-            valid_langs = ', '.join(SEARCH_LANGUAGES) if SEARCH_LANGUAGES else "en-US"
-            raise ValidationError(
-                f"Invalid language '{language}'. Choose from: {valid_langs}"
-            )
+            valid_langs = ", ".join(SEARCH_LANGUAGES) if SEARCH_LANGUAGES else "en-US"
+            raise ValidationError(f"Invalid language '{language}'. Choose from: {valid_langs}")
 
         normalized_files = normalize_files(files)
+        required_tier = get_model_registry().required_tier(mode, model)
     except ValidationError as exc:
+        return {
+            "status": "error",
+            "error_type": "ValidationError",
+            "message": str(exc),
+        }
+    except ValueError as exc:
         return {
             "status": "error",
             "error_type": "ValidationError",
@@ -403,14 +434,18 @@ def run_query(
         }
 
     # --- 2. Check if fallback to auto is enabled ---
-    should_fallback = fallback_to_auto and pool.is_fallback_to_auto_enabled()
+    should_fallback = (
+        fallback_to_auto and pool.is_fallback_to_auto_enabled() and required_tier != "max"
+    )
     is_pro_mode = mode in ("pro", "reasoning", "deep research")
 
     # Check global incognito override
     if pool.is_incognito_enabled():
         incognito = True
 
-    logger.debug(f"Starting query: mode={mode}, model={model}, fallback_enabled={should_fallback}, is_pro_mode={is_pro_mode}, incognito={incognito}")
+    logger.debug(
+        f"Starting query: mode={mode}, model={model}, fallback_enabled={should_fallback}, is_pro_mode={is_pro_mode}, incognito={incognito}"
+    )
 
     # --- 3. Client Pool Rotation ---
     # For Pro mode: first try non-downgraded clients, then fallback to auto if enabled
@@ -421,27 +456,45 @@ def run_query(
 
     # Try up to total_clients times to ensure we attempt all available clients
     for _ in range(total_clients):
-        client_id, client = pool.get_client()
+        excluded_ids = attempted_clients | {
+            client_id for client_id, _, _ in skipped_downgraded_clients
+        }
+        client_id, client = pool.get_client(
+            exclude_ids=excluded_ids,
+            required_tier=required_tier,
+        )
 
-        if client is None:
+        if client is None or client_id is None:
             # All clients are in backoff or none exist
             if not attempted_clients:
                 earliest = pool.get_earliest_available_time()
-                last_error = Exception(f"All clients are currently unavailable. Earliest available at: {earliest}")
+                if required_tier == "max":
+                    last_error = Exception("No available Max account can run the requested model.")
+                else:
+                    last_error = Exception(
+                        "All compatible clients are currently unavailable. "
+                        f"Earliest available at: {earliest}"
+                    )
             break
 
-        if client_id in attempted_clients or client_id in [c[0] for c in skipped_downgraded_clients]:
+        if client_id in attempted_clients or client_id in [
+            c[0] for c in skipped_downgraded_clients
+        ]:
             continue
 
         # Check client state
         client_state = pool.get_client_state(client_id)
         client_weight = pool.get_client_weight(client_id)
 
-        logger.debug(f"[{client_id}] Checking client: state={client_state}, weight={client_weight}, requested_mode={mode}")
+        logger.debug(
+            f"[{client_id}] Checking client: state={client_state}, weight={client_weight}, requested_mode={mode}"
+        )
 
         # For Pro mode: skip downgraded clients first, try Pro clients
         if is_pro_mode and client_state == "downgrade":
-            logger.debug(f"[{client_id}] Client is DOWNGRADED, skipping for Pro mode (will retry with fallback if enabled)")
+            logger.debug(
+                f"[{client_id}] Client is DOWNGRADED, skipping for Pro mode (will retry with fallback if enabled)"
+            )
             skipped_downgraded_clients.append((client_id, client, client_weight))
             continue
 
@@ -450,7 +503,13 @@ def run_query(
 
         try:
             # Stateful Validation
-            validate_search_params(mode, model, chosen_sources, own_account=client.own)
+            validate_search_params(
+                mode,
+                model,
+                chosen_sources,
+                own_account=client.own,
+                subscription_tier=getattr(client, "subscription_tier", None),
+            )
             validate_query_limits(client.copilot, client.file_upload, mode, len(normalized_files))
 
             logger.debug(f"[{client_id}] Executing search: mode={mode}, model={model}")
@@ -477,7 +536,10 @@ def run_query(
         except ValidationError as exc:
             last_error = exc
             error_msg = str(exc).lower()
-            is_client_limit = any(kw in error_msg for kw in ["pro", "limit", "account", "upload", "quota", "remaining"])
+            is_client_limit = any(
+                kw in error_msg
+                for kw in ["pro", "limit", "account", "upload", "quota", "remaining"]
+            )
 
             if is_client_limit:
                 logger.debug(f"[{client_id}] Client limit error: {exc}")
@@ -499,7 +561,9 @@ def run_query(
             error_msg = str(exc).lower()
             logger.debug(f"[{client_id}] Request exception: {type(exc).__name__}: {exc}")
 
-            if mode == "pro" and any(kw in error_msg for kw in ["pro", "quota", "limit", "remaining"]):
+            if mode == "pro" and any(
+                kw in error_msg for kw in ["pro", "quota", "limit", "remaining"]
+            ):
                 pool.mark_client_pro_failure(client_id)
             else:
                 pool.mark_client_failure(client_id)
@@ -547,7 +611,9 @@ def run_query(
                 logger.info(f"[{best_client_id}] DOWNGRADE FALLBACK succeeded: '{mode}' -> 'auto'")
                 return {"status": "ok", "data": clean_result}
             else:
-                logger.warning(f"[{best_client_id}] DOWNGRADE FALLBACK failed: no answer in response")
+                logger.warning(
+                    f"[{best_client_id}] DOWNGRADE FALLBACK failed: no answer in response"
+                )
                 last_error = Exception("Fallback search returned no answer")
 
         except Exception as fallback_exc:
@@ -586,7 +652,9 @@ def run_query(
 
     # --- 6. Final Error Handling ---
     total_tried = len(attempted_clients) + len(skipped_downgraded_clients)
-    logger.warning(f"Query failed after trying {total_tried} clients (Pro: {len(attempted_clients)}, Downgraded: {len(skipped_downgraded_clients)}): {last_error}")
+    logger.warning(
+        f"Query failed after trying {total_tried} clients (Pro: {len(attempted_clients)}, Downgraded: {len(skipped_downgraded_clients)}): {last_error}"
+    )
     return {
         "status": "error",
         "error_type": last_error.__class__.__name__ if last_error else "RequestFailed",

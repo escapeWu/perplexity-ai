@@ -2,14 +2,12 @@
 # re: Regular expressions for pattern matching
 # sys: System-specific parameters and functions
 # json: JSON parsing and serialization
-# random: Random number generation
 # mimetypes: Guessing MIME types of files
 # uuid: Generating unique identifiers
 # curl_cffi: HTTP requests and multipart form data handling
 import json
 import logging
 import mimetypes
-import random
 import re
 import sys
 from uuid import uuid4
@@ -42,15 +40,13 @@ except ImportError:
 from .config import (
     DEFAULT_HEADERS,
     ENDPOINT_AUTH_SESSION,
-    ENDPOINT_AUTH_SIGNIN,
     ENDPOINT_SSE_ASK,
     ENDPOINT_UPLOAD_URL,
     FILE_UPLOAD_TIMEOUT,
-    MODEL_MAPPINGS,
     SOCKS_PROXY,
     get_search_timeout,
 )
-from .emailnator import Emailnator
+from .model_registry import get_model_registry, normalize_subscription_tier
 
 logger = logging.getLogger(__name__)
 
@@ -90,18 +86,17 @@ class Client:
         self.own = bool(cookies)  # Indicates if the client uses its own account
         self.copilot = 0 if not cookies else float("inf")  # Remaining pro queries
         self.file_upload = 0 if not cookies else float("inf")  # Remaining file uploads
-
-        # Regular expression for extracting sign-in links
-        self.signin_regex = re.compile(
-            r'"(https://www\\.perplexity\\.ai/api/auth/callback/email\\?' r'callbackUrl=.*?)"'
-        )
-
-        # Unique timestamp for session identification
-        self.timestamp = format(random.getrandbits(32), "08x")
+        self._user_info = {}
+        self.subscription_tier = normalize_subscription_tier(None, own_account=self.own)
 
         # Initialize session by making a GET request
         logger.debug("Client initializing auth session via %s", ENDPOINT_AUTH_SESSION)
-        self.session.get(ENDPOINT_AUTH_SESSION, timeout=30)
+        try:
+            response = self.session.get(ENDPOINT_AUTH_SESSION, timeout=30)
+            if response is not None and response.ok:
+                self._update_user_info(response.json())
+        except Exception as exc:
+            logger.debug("Unable to read account tier during initialization: %s", exc)
 
     @property
     def cookies(self) -> dict:
@@ -123,62 +118,25 @@ class Client:
         try:
             resp = self.session.get(ENDPOINT_AUTH_SESSION, timeout=30)
             if resp.ok:
-                return resp.json()
+                user_info = resp.json()
+                self._update_user_info(user_info)
+                return user_info
             return {}
         except Exception:
             return {}
 
-    def create_account(self, cookies):
-        """
-        Creates a new account using Emailnator cookies.
-        """
-        while True:
-            try:
-                # Initialize Emailnator client
-                emailnator_cli = Emailnator(cookies)
-
-                # Send a POST request to initiate account creation
-                resp = self.session.post(
-                    ENDPOINT_AUTH_SIGNIN,
-                    data={
-                        "email": emailnator_cli.email,
-                        "csrfToken": self.session.cookies.get_dict()["next-auth.csrf-token"].split(
-                            "%"
-                        )[0],
-                        "callbackUrl": "https://www.perplexity.ai/",
-                        "json": "true",
-                    },
-                    timeout=30,
-                )
-
-                # Check if the response is successful
-                if resp.ok:
-                    # Wait for the sign-in email to arrive
-                    new_msgs = emailnator_cli.reload(
-                        wait_for=lambda x: x["subject"] == "Sign in to Perplexity",
-                        timeout=20,
-                    )
-
-                    if new_msgs:
-                        break
-                else:
-                    print("Perplexity account creating error:", resp)
-
-            except Exception:
-                pass
-
-        # Extract the sign-in link from the email
-        msg = emailnator_cli.get(func=lambda x: x["subject"] == "Sign in to Perplexity")
-        new_account_link = self.signin_regex.search(emailnator_cli.open(msg["messageID"])).group(1)
-
-        # Complete the account creation process
-        self.session.get(new_account_link)
-
-        # Update query and file upload limits
-        self.copilot = 5
-        self.file_upload = 10
-
-        return True
+    def _update_user_info(self, user_info) -> None:
+        """Cache session metadata and the tier used by pool routing."""
+        if not isinstance(user_info, dict):
+            return
+        self._user_info = user_info
+        user = user_info.get("user")
+        raw_tier = (
+            user.get("subscription_tier")
+            if isinstance(user, dict)
+            else user_info.get("subscription_tier")
+        )
+        self.subscription_tier = normalize_subscription_tier(raw_tier, own_account=self.own)
 
     def search(
         self,
@@ -215,9 +173,19 @@ class Client:
             "reasoning",
             "deep research",
         ], "Invalid search mode."
-        assert (
-            model in MODEL_MAPPINGS[mode] if self.own else True
-        ), "Invalid model for the selected mode."
+        account_tier = getattr(
+            self,
+            "subscription_tier",
+            normalize_subscription_tier(None, own_account=self.own),
+        )
+        try:
+            model_definition = get_model_registry().resolve(
+                mode,
+                model,
+                account_tier=account_tier,
+            )
+        except ValueError as exc:
+            raise AssertionError(str(exc)) from exc
         assert all(
             [source in ("web", "scholar", "social") for source in sources]
         ), "Invalid sources."
@@ -299,7 +267,7 @@ class Client:
                 "language": language,
                 "last_backend_uuid": (follow_up["backend_uuid"] if follow_up else None),
                 "mode": "concise" if mode == "auto" else "copilot",
-                "model_preference": MODEL_MAPPINGS[mode][model],
+                "model_preference": model_definition.internal_id,
                 "query_source": "followup" if follow_up else "home",
                 "source": "default",
                 "sources": sources,

@@ -3,7 +3,7 @@
 
 [![English Docs](https://img.shields.io/badge/docs-English-blue.svg)](README.md)
 
-非官方的 Perplexity.ai Python API，通过 MCP (Model Context Protocol) 和 OpenAI 兼容端点暴露搜索能力。支持多 Token 池负载均衡、健康监测和多种搜索模式。
+非官方的 Perplexity.ai 服务端，通过 MCP (Model Context Protocol) 和 OpenAI 兼容端点暴露搜索能力。支持多 Token 池负载均衡、健康监测和多种搜索模式。
 
 ## 展示
 **ADMIN 管理面板**
@@ -19,7 +19,8 @@
 <img width="1894" height="989" alt="image" src="https://github.com/user-attachments/assets/4a495432-8305-4820-8b4a-d7e54986ba45" />
 
 ## 更新记录
-+ **2026-07-29**：v1.12.0 — 新增可选的 Perplexity 结构化进度事件与 Playground 实时阶段时间线，在流式异常和取消时保留部分输出，并让同步/异步请求携带当前模型所需的浏览器 `query_source`。
++ **2026-07-30**：v1.13.0 — 新增每日缓存的 Perplexity 动态模型目录，按 Pro/Max 账号进行模型发现与号池路由，在 Playground 展示实时模型元数据，并为纯服务端部署移除无用的客户端 SDK、账号自动化、Labs、示例和旧资源。
++ **2026-07-29**：v1.12.0 — 新增可选的 Perplexity 结构化进度事件与 Playground 实时阶段时间线，在流式异常和取消时保留部分输出，并让服务端请求携带当前模型所需的浏览器 `query_source`。
 + **2026-07-29**：v1.11.0 — OpenAI 兼容聊天补全默认实时转发上游流，保留通过 `stream: false` 获取完整 JSON 响应的能力，新增 WebUI 流式模式切换与有效的停止操作，并增强流式故障转移和资源清理。
 + **2026-07-29**：v1.10.1 — 确保同步流式响应可靠关闭，将用户信息网络请求移出号池锁，采用无饥饿的平滑加权轮询调度，同步运行依赖，并让 Playground 的停止操作真正取消活跃请求。
 + **2026-07-28**：v1.10.0 — 新增当前全部非 Max 模型（Sonar 2、GPT-5.6 Terra、Gemini 3.1 Pro、Claude Sonnet 5、Kimi K3、GLM 5.2、Grok 4.5、Nemotron 3 Ultra），集中维护模型映射，并同步 MCP/OpenAI 模型发现、测试与文档。
@@ -150,8 +151,9 @@ services:
       # 格式: socks5://[user[:pass]@]host[:port][#remark]
       # - SOCKS_PROXY=${SOCKS_PROXY:-}
     volumes:
-      # 挂载 token 池配置文件
+      # 挂载 token 池配置文件与模型目录缓存
       - ./token_pool_config.json:/app/token_pool_config.json
+      - ./data:/app/data
     restart: unless-stopped
 ```
 
@@ -173,6 +175,10 @@ MCP_TOKEN=sk-123456
 
 # 管理员 Token（用于号池管理 API：新增/删除 token 等操作）
 PPLX_ADMIN_TOKEN=your-admin-token
+
+# 非 Docker 部署时可选
+# PPLX_MODEL_CACHE_PATH=./data/model_config_v2.json
+# PPLX_MODEL_CACHE_TTL=86400
 ```
 
 ## 多 Token 池配置（负载均衡）
@@ -259,27 +265,19 @@ curl http://127.0.0.1:8000/v1/chat/completions \
 
 ### 支持的模型
 
-| 模型 ID | 模式 | 说明 |
-|---------|------|------|
-| **Search 模式** | | |
-| `perplexity-search` | pro | 默认搜索模型 |
-| `sonar-2` | pro | Sonar 2 |
-| `sonar` | pro | Sonar 2 兼容别名 |
-| `gpt-5-6-terra` | pro | GPT-5.6 Terra |
-| `claude-sonnet-5` | pro | Claude Sonnet 5 |
-| `gemini-3-1-pro` | pro | Gemini 3.1 Pro |
-| `grok-4-5` | pro | Grok 4.5 |
-| **Thinking 模式** | | |
-| `perplexity-thinking` | reasoning | 默认思考模型 |
-| `gpt-5-6-terra-thinking` | reasoning | GPT-5.6 Terra Thinking |
-| `claude-sonnet-5-thinking` | reasoning | Claude Sonnet 5 Thinking |
-| `gemini-3-1-pro-thinking` | reasoning | Gemini 3.1 Pro Thinking |
-| `kimi-k3-thinking` | reasoning | Kimi K3 |
-| `glm-5-2-thinking` | reasoning | GLM 5.2 |
-| `grok-4-5-thinking` | reasoning | Grok 4.5 Thinking |
-| `nemotron-3-ultra-thinking` | reasoning | Nemotron 3 Ultra |
-| **Deep Research 模式** | | |
-| `perplexity-deepsearch` | deep research | 深度研究模型 |
+服务端每 24 小时请求一次 Perplexity 公共 v2 模型目录并持久化缓存。
+`/v1/models`、MCP `list_models`、参数校验和上游 `model_preference`
+都使用同一份动态目录：
+
+- Pro 账号展示 Pro 模型；
+- Max 账号展示 Pro 与 Max 模型；
+- Max 模型请求只会调度到 Max 账号；
+- `browser_agent` 项不会混入搜索模型；
+- `perplexity-search`、`perplexity-thinking`、`perplexity-deepsearch`
+  三个默认 ID 保持稳定，当前完整列表请以 `GET /v1/models` 为准。
+
+每日刷新失败时继续使用上一次有效的磁盘缓存；只有从未取得有效缓存时，
+才使用代码内置的保底映射。
 
 ### 客户端配置示例
 
@@ -316,9 +314,9 @@ perplexity/
 │       └── vite.config.ts   # Vite 配置
 ├── client.py                # Perplexity API 客户端
 ├── config.py                # 配置常量
+├── model_registry.py        # 动态模型目录、等级过滤与磁盘缓存
 ├── exceptions.py            # 自定义异常
-├── logger.py                # 日志配置
-└── utils.py                 # 通用工具函数 (重试、限流、JSON解析)
+└── logger.py                # 日志配置
 ```
 
 ## Claude Code skill

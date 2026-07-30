@@ -20,5 +20,6 @@ services:
     volumes:
       # 挂载 token 池配置文件（必需）
       - ./token_pool_config.json:/app/token_pool_config.json
+      # 持久化 Perplexity 模型目录的每日缓存
+      - ./data:/app/data
     restart: unless-stopped
-

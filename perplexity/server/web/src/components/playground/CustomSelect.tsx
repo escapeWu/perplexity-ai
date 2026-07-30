@@ -8,14 +8,23 @@ interface CustomSelectProps {
   disabled?: boolean
 }
 
-export function CustomSelect({ models, selectedModel, onSelect, disabled }: CustomSelectProps) {
+export function CustomSelect({
+  models,
+  selectedModel,
+  onSelect,
+  disabled
+}: CustomSelectProps) {
   const [isOpen, setIsOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
+  const selected = models.find((model) => model.id === selectedModel)
 
   // Close when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(event.target as Node)
+      ) {
         setIsOpen(false)
       }
     }
@@ -25,6 +34,18 @@ export function CustomSelect({ models, selectedModel, onSelect, disabled }: Cust
 
   const groups = models.reduce(
     (acc, model) => {
+      if (model.mode === 'reasoning') {
+        acc.reasoning.push(model)
+        return acc
+      }
+      if (model.mode === 'deep research') {
+        acc.deepsearch.push(model)
+        return acc
+      }
+      if (model.mode === 'auto' || model.mode === 'pro') {
+        acc.search.push(model)
+        return acc
+      }
       const id = model.id.toLowerCase()
       if (id.includes('reasoning') || id.includes('think')) {
         acc.reasoning.push(model)
@@ -37,21 +58,24 @@ export function CustomSelect({ models, selectedModel, onSelect, disabled }: Cust
       }
       return acc
     },
-    { search: [], reasoning: [], deepsearch: [], other: [] } as Record<string, OAIModel[]>
+    { search: [], reasoning: [], deepsearch: [], other: [] } as Record<
+      string,
+      OAIModel[]
+    >
   )
 
   const groupLabels: Record<string, string> = {
     search: 'Search',
     reasoning: 'Reasoning',
     deepsearch: 'Deep Research',
-    other: 'Other',
+    other: 'Other'
   }
 
   const groupColors: Record<string, string> = {
     search: 'text-acid',
     reasoning: 'text-neon-pink',
     deepsearch: 'text-neon-blue',
-    other: 'text-gray-400',
+    other: 'text-gray-400'
   }
 
   return (
@@ -61,7 +85,7 @@ export function CustomSelect({ models, selectedModel, onSelect, disabled }: Cust
         disabled={disabled}
         className="flex items-center justify-between bg-concrete text-gray-300 font-mono text-xs border-2 border-gray-600 hover:border-acid hover:text-acid px-3 py-2 h-[42px] w-[180px] focus:outline-none transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        <span className="truncate">{selectedModel}</span>
+        <span className="truncate">{selected?.label || selectedModel}</span>
         <svg
           xmlns="http://www.w3.org/2000/svg"
           fill="none"
@@ -81,7 +105,7 @@ export function CustomSelect({ models, selectedModel, onSelect, disabled }: Cust
       </button>
 
       {isOpen && (
-        <div className="absolute bottom-full left-0 mb-2 w-[240px] max-h-[300px] overflow-y-auto bg-black border-2 border-gray-600 shadow-hard z-50 animate-in fade-in zoom-in-95 duration-100 origin-bottom-left">
+        <div className="absolute bottom-full left-0 mb-2 w-[300px] max-h-[360px] overflow-y-auto bg-black border-2 border-gray-600 shadow-hard z-50 animate-in fade-in zoom-in-95 duration-100 origin-bottom-left">
           {Object.entries(groups).map(([key, groupModels]) => {
             if (groupModels.length === 0) return null
             return (
@@ -98,11 +122,28 @@ export function CustomSelect({ models, selectedModel, onSelect, disabled }: Cust
                       onSelect(m.id)
                       setIsOpen(false)
                     }}
-                    className={`w-full text-left px-3 py-2 text-xs font-mono hover:bg-white hover:text-black transition-colors ${
-                      selectedModel === m.id ? 'text-white bg-gray-800' : 'text-gray-400'
+                    title={m.description}
+                    className={`group w-full text-left px-3 py-2 text-xs font-mono hover:bg-white hover:text-black transition-colors ${
+                      selectedModel === m.id
+                        ? 'text-white bg-gray-800'
+                        : 'text-gray-400'
                     }`}
                   >
-                    {m.id}
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="truncate text-gray-100 group-hover:text-black">
+                        {m.label || m.id}
+                      </span>
+                      {m.subscription_tier === 'max' && (
+                        <span className="shrink-0 border border-neon-pink px-1 text-[9px] uppercase text-neon-pink group-hover:border-black group-hover:text-black">
+                          Max
+                        </span>
+                      )}
+                    </span>
+                    {(m.label || m.description) && (
+                      <span className="mt-0.5 block truncate text-[10px] text-gray-500 group-hover:text-gray-700">
+                        {m.description || m.id}
+                      </span>
+                    )}
                   </button>
                 ))}
               </div>

@@ -4,15 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "perplexity-api"
-version = "1.12.0"
-description = "Unofficial Python API for Perplexity.ai with account management"
+version = "1.13.0"
+description = "Unofficial Perplexity MCP and OpenAI-compatible server with multi-account pooling"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
     {name = "ESousa97", email = "contact@perplexity.ai"},
 ]
-keywords = ["perplexity", "ai", "api", "automation", "search"]
+keywords = ["perplexity", "ai", "mcp", "openai", "search"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -26,7 +26,6 @@ classifiers = [
 
 dependencies = [
     "curl_cffi>=0.5.7",
-    "websocket-client>=1.9.0",
     "fastmcp>=0.1.0,<3.0.0",
     "python-dotenv>=1.0.0",
     "aiohttp>=3.9.0",
@@ -34,11 +33,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-driver = [
-    "patchright>=1.0.0",
-    "playwright>=1.40.0",
-]
-async = []
 dev = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",
@@ -47,9 +41,6 @@ dev = [
     "mypy>=1.5.0",
     "flake8>=6.0.0",
     "isort>=5.12.0",
-]
-all = [
-    "perplexity-api[driver,dev]",
 ]
 
 [project.scripts]
@@ -61,7 +52,7 @@ Repository = "https://github.com/ESousa97/perplexity-ai"
 Issues = "https://github.com/ESousa97/perplexity-ai/issues"
 
 [tool.setuptools.packages.find]
-include = ["perplexity*", "perplexity_async*"]
+include = ["perplexity*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
