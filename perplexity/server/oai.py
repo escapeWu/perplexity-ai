@@ -289,6 +289,23 @@ async def _stream_chat_response(
         progress_tracker = ProgressTracker() if include_progress else None
 
         try:
+            if progress_tracker is not None:
+                initial_updates = progress_tracker.update(
+                    {
+                        "text": [
+                            {
+                                "step_type": "INITIAL_QUERY",
+                                "content": {},
+                            }
+                        ]
+                    }
+                )
+                for progress in initial_updates:
+                    progress_data = make_progress_chunk(
+                        response_id, created, model_id, progress
+                    )
+                    yield f"data: {json.dumps(progress_data, ensure_ascii=False)}\n\n"
+
             async for upstream_chunk in iterate_in_threadpool(upstream):
                 if progress_tracker is not None:
                     for progress in progress_tracker.update(upstream_chunk):

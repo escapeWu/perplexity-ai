@@ -19,6 +19,7 @@
 <img width="1894" height="989" alt="image" src="https://github.com/user-attachments/assets/4a495432-8305-4820-8b4a-d7e54986ba45" />
 
 ## 更新记录
++ **2026-07-30**：v1.13.1 — 适配 Perplexity 新的 blocks 响应协议，恢复 Playground 实时进度与答案流式输出，正确拼接带 offset 的 Markdown 分块，并去重重复生命周期阶段。
 + **2026-07-30**：v1.13.0 — 新增每日缓存的 Perplexity 动态模型目录，按 Pro/Max 账号进行模型发现与号池路由，在 Playground 展示实时模型元数据，并为纯服务端部署移除无用的客户端 SDK、账号自动化、Labs、示例和旧资源。
 + **2026-07-29**：v1.12.0 — 新增可选的 Perplexity 结构化进度事件与 Playground 实时阶段时间线，在流式异常和取消时保留部分输出，并让服务端请求携带当前模型所需的浏览器 `query_source`。
 + **2026-07-29**：v1.11.0 — OpenAI 兼容聊天补全默认实时转发上游流，保留通过 `stream: false` 获取完整 JSON 响应的能力，新增 WebUI 流式模式切换与有效的停止操作，并增强流式故障转移和资源清理。

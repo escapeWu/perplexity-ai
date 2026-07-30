@@ -1,5 +1,6 @@
 """Regression tests for closing synchronous streaming responses."""
 
+import json
 from typing import Iterable
 
 import pytest
@@ -9,6 +10,10 @@ from perplexity.client import Client
 
 MESSAGE = b'event: message\r\ndata: {"answer": "ok"}'
 END = b"event: end_of_stream\r\n"
+
+
+def message(payload) -> bytes:
+    return b"event: message\r\ndata: " + json.dumps(payload).encode()
 
 
 class FakeResponse:
@@ -104,3 +109,57 @@ def test_non_stream_response_closes_after_decode_error() -> None:
         make_client(response).search("test")
 
     assert response.close_count == 1
+
+
+def test_stream_normalizes_incremental_block_payloads() -> None:
+    response = FakeResponse(
+        [
+            message({"blocks": []}),
+            message(
+                {
+                    "blocks": [
+                        {
+                            "web_result_block": {
+                                "progress": "IN_PROGRESS",
+                                "web_results": [{"url": "https://example.com", "name": "Example"}],
+                            }
+                        }
+                    ]
+                }
+            ),
+            message(
+                {
+                    "blocks": [
+                        {
+                            "markdown_block": {
+                                "progress": "IN_PROGRESS",
+                                "chunks": ["Hel", "l"],
+                                "chunk_starting_offset": 0,
+                            }
+                        }
+                    ]
+                }
+            ),
+            message(
+                {
+                    "blocks": [
+                        {
+                            "markdown_block": {
+                                "progress": "IN_PROGRESS",
+                                "chunks": ["o"],
+                                "chunk_starting_offset": 2,
+                            }
+                        }
+                    ]
+                }
+            ),
+            END,
+        ]
+    )
+
+    chunks = list(make_client(response).search("test", stream=True))
+
+    assert [step["step_type"] for step in chunks[0]["text"]] == ["INITIAL_QUERY"]
+    assert chunks[1]["chunks"] == [{"url": "https://example.com", "name": "Example"}]
+    assert chunks[2]["answer"] == "Hell"
+    assert chunks[3]["answer"] == "Hello"

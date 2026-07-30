@@ -51,8 +51,8 @@ class ProgressTracker:
     """Turn cumulative upstream step snapshots into ordered lifecycle events."""
 
     def __init__(self) -> None:
-        self._events: Dict[tuple[int, str], Dict[str, Any]] = {}
-        self._active_key: Optional[tuple[int, str]] = None
+        self._events: Dict[str, Dict[str, Any]] = {}
+        self._active_key: Optional[str] = None
         self._next_id = 1
 
     def update(self, upstream_chunk: Dict[str, Any]) -> list[Dict[str, Any]]:
@@ -61,12 +61,15 @@ class ProgressTracker:
             return []
 
         updates = []
-        for index, step in enumerate(text):
+        for step in text:
             normalized = _normalize_progress_step(step)
             if normalized is None:
                 continue
 
-            key = (index, normalized["stage"])
+            # Public progress stages are unique lifecycle phases. Keying by the
+            # upstream list index made repeated SEARCH_RESULTS snapshots appear
+            # as duplicate UI steps when the upstream reordered its payload.
+            key = normalized["stage"]
             existing = self._events.get(key)
             if existing is not None:
                 new_detail = normalized.get("detail")

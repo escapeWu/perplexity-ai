@@ -47,6 +47,7 @@ from .config import (
     get_search_timeout,
 )
 from .model_registry import get_model_registry, normalize_subscription_tier
+from .response_parser import UpstreamResponseAccumulator
 
 logger = logging.getLogger(__name__)
 
@@ -280,6 +281,7 @@ class Client:
         # 优先使用调用方显式传入的 timeout（由 ClientPool 注入），否则按 mode 兜底。
         request_timeout = timeout if timeout and timeout > 0 else get_search_timeout(mode)
         chunks = []
+        response_accumulator = UpstreamResponseAccumulator()
 
         def open_response():
             return self.session.post(
@@ -325,6 +327,8 @@ class Client:
                                     content_json["text"] = text_parsed
                                 except (json.JSONDecodeError, TypeError, KeyError):
                                     pass
+
+                            content_json = response_accumulator.normalize(content_json)
 
                             chunks.append(content_json)
                             yield chunks[-1]

@@ -83,4 +83,52 @@ describe('chatCompletionStream', () => {
     expect(cancel).toHaveBeenCalledOnce()
     expect(releaseLock).toHaveBeenCalledOnce()
   })
+
+  it('yields an SSE chunk before the response reader completes', async () => {
+    const cancel = vi.fn().mockResolvedValue(undefined)
+    const releaseLock = vi.fn()
+    let finishRead!: (value: { done: boolean; value?: Uint8Array }) => void
+    const pendingRead = new Promise<{ done: boolean; value?: Uint8Array }>((resolve) => {
+      finishRead = resolve
+    })
+    const read = vi
+      .fn()
+      .mockResolvedValueOnce({
+        done: false,
+        value: new TextEncoder().encode(
+          'data: {"id":"chatcmpl-test","object":"chat.completion.chunk","created":1,"model":"perplexity-search","choices":[{"index":0,"delta":{"content":"Hel"},"finish_reason":null}]}\n\n'
+        ),
+      })
+      .mockImplementationOnce(() => pendingRead)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        body: {
+          getReader: () => ({ read, cancel, releaseLock }),
+        },
+      })
+    )
+
+    const stream = chatCompletionStream(
+      {
+        model: 'perplexity-search',
+        messages: [{ role: 'user', content: 'hello' }],
+      },
+      'test-token'
+    )
+
+    const first = await stream.next()
+    expect(first.value?.choices[0].delta.content).toBe('Hel')
+    expect(read).toHaveBeenCalledOnce()
+
+    const donePromise = stream.next()
+    finishRead({
+      done: false,
+      value: new TextEncoder().encode('data: [DONE]\n\n'),
+    })
+    await expect(donePromise).resolves.toEqual({ value: undefined, done: true })
+    expect(cancel).toHaveBeenCalledOnce()
+    expect(releaseLock).toHaveBeenCalledOnce()
+  })
 })

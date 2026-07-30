@@ -165,6 +165,34 @@ async def test_stream_progress_extension_emits_deduplicated_lifecycle_events():
 
 
 @pytest.mark.asyncio
+async def test_stream_progress_starts_before_first_upstream_event():
+    upstream_started = threading.Event()
+
+    def upstream():
+        upstream_started.set()
+        yield {"answer": "Hello"}
+
+    with patch("perplexity.server.oai.run_query_stream", return_value=upstream()):
+        response = await oai._stream_chat_response(
+            "test",
+            "pro",
+            None,
+            "perplexity-search",
+            "chatcmpl-test",
+            1,
+            include_progress=True,
+        )
+        iterator = response.body_iterator
+        first = await asyncio.wait_for(anext(iterator), timeout=0.5)
+        assert upstream_started.is_set() is False
+        await iterator.aclose()
+
+    first_payload = decode_sse(first)
+    assert first_payload["perplexity_progress"]["stage"] == "initial_query"
+    assert first_payload["perplexity_progress"]["status"] == "running"
+
+
+@pytest.mark.asyncio
 async def test_stream_progress_marks_active_stage_failed_on_upstream_error():
     def upstream():
         yield {
@@ -195,7 +223,12 @@ async def test_stream_progress_marks_active_stage_failed_on_upstream_error():
         for payload in payloads
         if "perplexity_progress" in payload
     ]
-    assert [event["status"] for event in progress] == ["running", "failed"]
+    assert [(event["stage"], event["status"]) for event in progress] == [
+        ("initial_query", "running"),
+        ("initial_query", "completed"),
+        ("search_web", "running"),
+        ("search_web", "failed"),
+    ]
     assert payloads[-1]["choices"][0]["finish_reason"] == "error"
     assert payloads[-1]["error"]["message"] == "upstream interrupted"
 
