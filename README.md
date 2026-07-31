@@ -297,4 +297,7 @@ https://github.com/escapeWu/skills/blob/main/skills/perplexity-search/SKILL.md
 
 
 ## Upstream Project
-https://github.com/helallao/perplexity-ai
+https://github.com/helallao/perplexity-ai 
++ fix param lack, auto redirect to GPT-5.6-nano, and add fancy mcp/restapi server 
+<img width="745" height="229" alt="image" src="https://github.com/user-attachments/assets/2513e13e-cfc3-49d7-82cd-8dbae20f8991" />
+
