@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   perplexity-mcp:
     build:
@@ -24,4 +22,10 @@ services:
       - ./token_pool_config.json:/app/token_pool_config.json
       # 持久化 Perplexity 模型目录的每日缓存
       - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
     restart: unless-stopped

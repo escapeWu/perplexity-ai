@@ -135,6 +135,28 @@ cp .env.example .env
 docker compose up -d
 ```
 
+#### 在服务器从 GitHub 源码构建部署
+
+生产服务器可以直接部署检出的源码，无需等待 Docker Hub 镜像：
+
+```bash
+git pull --ff-only origin main
+./deploy/compose.sh up
+```
+
+部署入口会校验 `.env` 和 `token_pool_config.json`，在服务器本地构建前后端镜像，
+等待容器健康检查，通过 `/health` 验证服务，并输出最终状态。服务器上的 `.env`、
+Token 配置、`data/` 缓存和 Docker 卷都会保留。
+
+其他命令：
+
+```bash
+./deploy/compose.sh config
+./deploy/compose.sh verify
+./deploy/compose.sh status
+./deploy/compose.sh logs
+```
+
 #### docker-compose.yml 配置示例
 
 ```yml

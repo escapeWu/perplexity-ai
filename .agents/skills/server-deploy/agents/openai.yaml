@@ -1,0 +1,4 @@
+interface:
+  display_name: "Server Deploy"
+  short_description: "Deploy latest GitHub source on the production server"
+  default_prompt: "Use $server-deploy to deploy the latest main commit to /root/perplexity."

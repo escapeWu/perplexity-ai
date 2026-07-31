@@ -134,6 +134,30 @@ cp .env.example .env
 docker compose up -d
 ```
 
+#### Build and Deploy from GitHub on a Server
+
+Production servers can deploy the checked-out source directly without waiting for
+a Docker Hub image:
+
+```bash
+git pull --ff-only origin main
+./deploy/compose.sh up
+```
+
+The deployment entrypoint validates `.env` and `token_pool_config.json`, builds the
+frontend and backend image locally, waits for the container health check, verifies
+`/health`, and prints the final service status. It preserves `.env`, token
+configuration, the `data/` cache, and Docker volumes.
+
+Additional commands:
+
+```bash
+./deploy/compose.sh config
+./deploy/compose.sh verify
+./deploy/compose.sh status
+./deploy/compose.sh logs
+```
+
 #### docker-compose.yml Example
 
 ```yml
@@ -322,4 +346,3 @@ https://github.com/escapeWu/skills/blob/main/skills/perplexity-search/SKILL.md
 https://github.com/helallao/perplexity-ai 
 + fix param lack, auto redirect to GPT-5.6-nano, and add fancy mcp/restapi server 
 <img width="745" height="229" alt="image" src="https://github.com/user-attachments/assets/2513e13e-cfc3-49d7-82cd-8dbae20f8991" />
-
