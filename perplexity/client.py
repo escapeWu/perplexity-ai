@@ -139,6 +139,45 @@ class Client:
         )
         self.subscription_tier = normalize_subscription_tier(raw_tier, own_account=self.own)
 
+    def _search_request_headers(self, frontend_uuid: str, language: str) -> dict:
+        """Build the browser protocol headers used by Perplexity's ask endpoint."""
+        language = str(language or "en-US")
+        base_language = language.split("-", 1)[0]
+        api_origin = ENDPOINT_SSE_ASK.split("/rest/", 1)[0]
+        accept_language = (
+            f"{language},{base_language};q=0.9,en;q=0.8"
+            if base_language != "en"
+            else f"{language},en;q=0.9"
+        )
+        headers = {
+            "accept": "text/event-stream",
+            "accept-language": accept_language,
+            "cache-control": "no-cache",
+            "content-type": "application/json",
+            "origin": api_origin,
+            "pragma": "no-cache",
+            "priority": "u=1, i",
+            "referer": f"{api_origin}/",
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-site": "same-origin",
+            "x-perplexity-request-endpoint": ENDPOINT_SSE_ASK,
+            "x-perplexity-request-reason": "ask-query-state-provider",
+            "x-perplexity-request-try-number": "1",
+            # The web client correlates this header with params.frontend_uuid.
+            "x-request-id": frontend_uuid,
+        }
+
+        user_info = getattr(self, "_user_info", {})
+        user = user_info.get("user") if isinstance(user_info, dict) else None
+        account_id = user.get("id") if isinstance(user, dict) else None
+        if account_id:
+            # Perplexity uses this account context when checking access to an
+            # explicitly selected Pro/Max model.
+            headers["x-pplx-account"] = str(account_id)
+
+        return headers
+
     def search(
         self,
         query,
@@ -256,14 +295,16 @@ class Client:
             uploaded_files.append(uploaded_url)
 
         # Prepare the JSON payload for the query
+        frontend_context_uuid = str(uuid4())
+        frontend_uuid = str(uuid4())
         json_data = {
             "query_str": query,
             "params": {
                 "attachments": (
                     uploaded_files + follow_up["attachments"] if follow_up else uploaded_files
                 ),
-                "frontend_context_uuid": str(uuid4()),
-                "frontend_uuid": str(uuid4()),
+                "frontend_context_uuid": frontend_context_uuid,
+                "frontend_uuid": frontend_uuid,
                 "is_incognito": incognito,
                 "language": language,
                 "last_backend_uuid": (follow_up["backend_uuid"] if follow_up else None),
@@ -285,7 +326,11 @@ class Client:
 
         def open_response():
             return self.session.post(
-                ENDPOINT_SSE_ASK, json=json_data, stream=True, timeout=request_timeout
+                ENDPOINT_SSE_ASK,
+                json=json_data,
+                headers=self._search_request_headers(frontend_uuid, language),
+                stream=True,
+                timeout=request_timeout,
             )
 
         def stream_response(resp=None):

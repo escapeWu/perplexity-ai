@@ -17,21 +17,24 @@ tech_stack:
 
 ## 数据源
 
-模型目录来自 Perplexity 公共 GET 接口：
+开发机从 Perplexity 公共 GET 接口取得原始目录：
 
 `https://www.perplexity.ai/rest/models/config/v2?version=2.18&source=default`
 
-服务使用 Chrome TLS impersonation 发起请求，不携带账号 Cookie。响应中的
-`search_config` 决定前端可选项和 `subscription_tier`，`models` 用于确认内部
-模型确实属于 `mode=search`。`mode=browser_agent` 的条目属于另一套协议，
-不会暴露给 MCP 或 OpenAI 搜索接口。
+`perplexity-model-sync` 校验并原子写入
+`catalog/model_config_v2.json`，由开发者审阅差异后提交到 GitHub。服务端
+默认从该仓库的 GitHub Raw 地址拉取，因此不会直接依赖 Perplexity 对服务器
+请求的访问策略。响应中的 `search_config` 决定前端可选项和
+`subscription_tier`，`models` 用于确认内部模型确实属于 `mode=search`。
+`mode=browser_agent` 的条目属于另一套协议，不会暴露给 MCP 或 OpenAI
+搜索接口。
 
 ## 缓存生命周期
 
 `perplexity/model_registry.py` 是唯一模型目录来源：
 
 1. 启动时读取服务器磁盘缓存；
-2. 缓存超过 24 小时时请求公共接口；
+2. 缓存超过 24 小时时请求 GitHub Raw 清单；
 3. 新响应通过 schema 和可调用模型校验后，以临时文件 + `os.replace` 原子落盘；
 4. 运行期间每小时检查一次过期状态，实际最多每天请求一次；
 5. 网络、解析或落盘失败时继续使用上一份有效缓存；
@@ -39,7 +42,8 @@ tech_stack:
 
 默认缓存位于 `.cache/perplexity/model_config_v2.json`。Docker 镜像使用
 `/app/data/model_config_v2.json`，Compose 将 `./data` 挂载为持久目录。
-可用 `PPLX_MODEL_CACHE_PATH` 和 `PPLX_MODEL_CACHE_TTL` 覆盖。
+可用 `PPLX_MODELS_CONFIG_URL`、`PPLX_MODEL_CACHE_PATH` 和
+`PPLX_MODEL_CACHE_TTL` 覆盖数据源、缓存路径与刷新周期。
 
 ## Pro / Max 分层
 

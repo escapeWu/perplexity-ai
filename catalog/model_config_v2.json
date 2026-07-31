@@ -1,0 +1,917 @@
+{
+  "agentic_research_compare_models": [
+    "gpt56_sol_thinking",
+    "claude50opusthinking",
+    "gemini31pro_high"
+  ],
+  "computer_config": [
+    {
+      "audience": null,
+      "description": "由 GPT-5.6 Sol 提供动力的电脑",
+      "fast_model": null,
+      "has_new_tag": false,
+      "is_default": false,
+      "label": "GPT-5.6 Sol",
+      "model": "pplx_asi_gpt_56_sol",
+      "subheading": "OpenAI 最新的复杂任务模型。",
+      "subscription_tier": "pro",
+      "support_model_switching": false
+    },
+    {
+      "audience": null,
+      "description": "由 Claude Fable 5 驱动的电脑",
+      "fast_model": null,
+      "has_new_tag": false,
+      "is_default": false,
+      "label": "Claude Fable 5",
+      "model": "pplx_asi_fable_5",
+      "subheading": "Anthropic 最强大的模型。使用额外额度。",
+      "subscription_tier": "pro",
+      "support_model_switching": true
+    },
+    {
+      "audience": null,
+      "description": "由 Claude Opus 5 提供算力支持的电脑",
+      "fast_model": "pplx_asi_opus_fast",
+      "has_new_tag": false,
+      "is_default": false,
+      "label": "Claude Opus 5",
+      "model": "pplx_asi_opus",
+      "subheading": "适用于复杂任务的强大模型。",
+      "subscription_tier": "pro",
+      "support_model_switching": true
+    },
+    {
+      "audience": null,
+      "description": "由 Claude Sonnet 5 驱动的计算机",
+      "fast_model": null,
+      "has_new_tag": false,
+      "is_default": false,
+      "label": "Claude Sonnet 5",
+      "model": "pplx_asi_sonnet",
+      "subheading": "非常适合大多数日常任务，且消耗的点数更少。",
+      "subscription_tier": "pro",
+      "support_model_switching": true
+    },
+    {
+      "audience": null,
+      "description": "由 GLM 5.2 驱动的电脑",
+      "fast_model": null,
+      "has_new_tag": false,
+      "is_default": false,
+      "label": "Preview (GLM 5.2-based)",
+      "model": "pplx_asi_glm",
+      "subheading": "非常适合大多数任务。使用的点数最少。托管于美国。",
+      "subscription_tier": "pro",
+      "support_model_switching": true
+    },
+    {
+      "audience": null,
+      "description": "由 Kimi K3 驱动的电脑",
+      "fast_model": null,
+      "has_new_tag": false,
+      "is_default": false,
+      "label": "Kimi K3",
+      "model": "pplx_asi_kimi_k3",
+      "subheading": "Moonshot AI 的最新模型。托管在美国。",
+      "subscription_tier": "pro",
+      "support_model_switching": true
+    },
+    {
+      "audience": null,
+      "description": "由 Grok 4.5 驱动的计算机",
+      "fast_model": null,
+      "has_new_tag": false,
+      "is_default": false,
+      "label": "Grok 4.5",
+      "model": "pplx_asi_grok_45",
+      "subheading": "xAI 最新用于复杂任务的模型。",
+      "subscription_tier": "pro",
+      "support_model_switching": true
+    }
+  ],
+  "config_schema": "v2",
+  "default_models": {
+    "agentic_research": "pplx_agentic_research",
+    "asi": "pplx_asi",
+    "browser_agent": "comet_browser_agent",
+    "document_review": "pplx_document_review",
+    "research": "pplx_alpha",
+    "search": "pplx_pro",
+    "study": "pplx_study"
+  },
+  "models": {
+    "chatgpt_tools": {
+      "description": "OpenAI 的工具支持模型",
+      "label": "ChatGPT Tools",
+      "mode": "search",
+      "provider": "OPENAI"
+    },
+    "claude2": {
+      "description": "Anthropic 的高级模型",
+      "label": "Claude Sonnet 4.0",
+      "mode": "search",
+      "provider": "ANTHROPIC"
+    },
+    "claude37sonnetthinking": {
+      "description": "Anthropic 的推理模型",
+      "label": "Claude Sonnet 4.0 Thinking",
+      "mode": "search",
+      "provider": "ANTHROPIC"
+    },
+    "claude40opus": {
+      "description": "Anthropic 的 Opus 推理模型",
+      "label": "Claude Opus 4.0",
+      "mode": "search",
+      "provider": "ANTHROPIC"
+    },
+    "claude40opusthinking": {
+      "description": "Anthropic 的 Opus 推理模型（带思考能力）",
+      "label": "Claude Opus 4.0 Thinking",
+      "mode": "search",
+      "provider": "ANTHROPIC"
+    },
+    "claude40sonnetthinking": {
+      "description": "Anthropic 的推理模型",
+      "label": "Claude Sonnet 4.0 Thinking",
+      "mode": "search",
+      "provider": "ANTHROPIC"
+    },
+    "claude41opus": {
+      "description": "Anthropic 的 Opus 推理模型",
+      "label": "Claude Opus 4.1",
+      "mode": "search",
+      "provider": "ANTHROPIC"
+    },
+    "claude41opusthinking": {
+      "description": "Anthropic 的 Opus 推理模型（带思考能力）",
+      "label": "Claude Opus 4.1 Thinking",
+      "mode": "search",
+      "provider": "ANTHROPIC"
+    },
+    "claude45haiku": {
+      "description": "Anthropic 的紧凑模型",
+      "label": "Claude Haiku 4.5",
+      "mode": "search",
+      "provider": "ANTHROPIC"
+    },
+    "claude45haikuthinking": {
+      "description": "Anthropic 的紧凑推理模型",
+      "label": "Claude Haiku 4.5 Thinking",
+      "mode": "search",
+      "provider": "ANTHROPIC"
+    },
+    "claude45opus": {
+      "description": "Anthropic 最先进的模型",
+      "label": "Claude Opus 4.5",
+      "mode": "search",
+      "provider": "ANTHROPIC"
+    },
+    "claude45opusthinking": {
+      "description": "Anthropic 的 Opus 推理模型（带思考能力）",
+      "label": "Claude Opus 4.5 Thinking",
+      "mode": "search",
+      "provider": "ANTHROPIC"
+    },
+    "claude45sonnet": {
+      "description": "Anthropic 的快速模型",
+      "label": "Claude Sonnet 4.5",
+      "mode": "search",
+      "provider": "ANTHROPIC"
+    },
+    "claude45sonnetthinking": {
+      "description": "Anthropic 最新的推理模型",
+      "label": "Claude Sonnet 4.5 Thinking",
+      "mode": "search",
+      "provider": "ANTHROPIC"
+    },
+    "claude46opus": {
+      "description": "Anthropic 最先进的模型",
+      "label": "Claude Opus 4.6",
+      "mode": "search",
+      "provider": "ANTHROPIC"
+    },
+    "claude46opusthinking": {
+      "description": "Anthropic 的 Opus 推理模型（带思考能力）",
+      "label": "Claude Opus 4.6 Thinking",
+      "mode": "search",
+      "provider": "ANTHROPIC"
+    },
+    "claude46sonnet": {
+      "description": "Anthropic 的快速模型",
+      "label": "Claude Sonnet 4.6",
+      "mode": "search",
+      "provider": "ANTHROPIC"
+    },
+    "claude46sonnetthinking": {
+      "description": "Anthropic 最新的推理模型",
+      "label": "Claude Sonnet 4.6 Thinking",
+      "mode": "search",
+      "provider": "ANTHROPIC"
+    },
+    "claude47opus": {
+      "description": "Anthropic 最先进的模型",
+      "label": "Claude Opus 4.7",
+      "mode": "search",
+      "provider": "ANTHROPIC"
+    },
+    "claude47opusthinking": {
+      "description": "Anthropic 最先进的具备思考能力的模型",
+      "label": "Claude Opus 4.7 Thinking",
+      "mode": "search",
+      "provider": "ANTHROPIC"
+    },
+    "claude48opus": {
+      "description": "Anthropic 最先进的模型",
+      "label": "Claude Opus 4.8",
+      "mode": "search",
+      "provider": "ANTHROPIC"
+    },
+    "claude48opusthinking": {
+      "description": "Anthropic 最先进的具备思考能力的模型",
+      "label": "Claude Opus 4.8 Thinking",
+      "mode": "search",
+      "provider": "ANTHROPIC"
+    },
+    "claude50opus": {
+      "description": "Anthropic 最先进的模型",
+      "label": "Claude Opus 5",
+      "mode": "search",
+      "provider": "ANTHROPIC"
+    },
+    "claude50opusthinking": {
+      "description": "Anthropic 最先进的具备思考能力的模型",
+      "label": "Claude Opus 5 Thinking",
+      "mode": "search",
+      "provider": "ANTHROPIC"
+    },
+    "claude50sonnet": {
+      "description": "Anthropic 的快速模型",
+      "label": "Claude Sonnet 5",
+      "mode": "search",
+      "provider": "ANTHROPIC"
+    },
+    "claude50sonnetthinking": {
+      "description": "Anthropic 最新的推理模型",
+      "label": "Claude Sonnet 5 Thinking",
+      "mode": "search",
+      "provider": "ANTHROPIC"
+    },
+    "claudecode": {
+      "description": "Anthropic 的编码代理",
+      "label": "Claude Code",
+      "mode": "search",
+      "provider": "ANTHROPIC"
+    },
+    "codex": {
+      "description": "OpenAI 的编码代理",
+      "label": "Codex",
+      "mode": "search",
+      "provider": "OPENAI"
+    },
+    "comet_browser_agent": {
+      "description": "选择最佳可用的浏览器代理模型",
+      "label": "Best",
+      "mode": "browser_agent",
+      "provider": null
+    },
+    "comet_browser_agent_opus": {
+      "description": "由 Claude Opus 4.8 驱动的浏览器代理",
+      "label": "Claude Opus 4.8",
+      "mode": "browser_agent",
+      "provider": "ANTHROPIC"
+    },
+    "comet_browser_agent_sonnet": {
+      "description": "由 Claude Sonnet 5 提供支持的浏览器代理",
+      "label": "Claude Sonnet 5",
+      "mode": "browser_agent",
+      "provider": "ANTHROPIC"
+    },
+    "experimental": {
+      "description": "Perplexity 最新的自研模型。",
+      "label": "Sonar 2",
+      "mode": "search",
+      "provider": "PERPLEXITY"
+    },
+    "gemini25pro": {
+      "description": "谷歌的最新模型",
+      "label": "Gemini 2.5 Pro",
+      "mode": "search",
+      "provider": "GOOGLE"
+    },
+    "gemini30flash": {
+      "description": "Google 的快速模型",
+      "label": "Gemini 3 Flash",
+      "mode": "search",
+      "provider": "GOOGLE"
+    },
+    "gemini30flash_high": {
+      "description": "Google 的快速模型",
+      "label": "Gemini 3 Flash Thinking",
+      "mode": "search",
+      "provider": "GOOGLE"
+    },
+    "gemini30pro": {
+      "description": "谷歌最先进的模型",
+      "label": "Gemini 3 Pro",
+      "mode": "search",
+      "provider": "GOOGLE"
+    },
+    "gemini31pro_high": {
+      "description": "谷歌最新的具备思考能力的模型",
+      "label": "Gemini 3.1 Pro Thinking",
+      "mode": "search",
+      "provider": "GOOGLE"
+    },
+    "gemini31pro_low": {
+      "description": "谷歌的最新模型",
+      "label": "Gemini 3.1 Pro",
+      "mode": "search",
+      "provider": "GOOGLE"
+    },
+    "gemini35flash": {
+      "description": "Google 的快速模型",
+      "label": "Gemini 3.5 Flash",
+      "mode": "search",
+      "provider": "GOOGLE"
+    },
+    "gemini35flash_high": {
+      "description": "谷歌带有思维能力的快速模型",
+      "label": "Gemini 3.5 Flash Thinking",
+      "mode": "search",
+      "provider": "GOOGLE"
+    },
+    "gemini35flash_medium": {
+      "description": "Google 的快速模型，具备中等推理能力",
+      "label": "Gemini 3.5 Flash Medium Thinking",
+      "mode": "search",
+      "provider": "GOOGLE"
+    },
+    "glm_5_2": {
+      "description": "Z.ai 的高级模型",
+      "label": "GLM-5.2",
+      "mode": "search",
+      "provider": "ZAI"
+    },
+    "gpt41": {
+      "description": "OpenAI 的先进模型",
+      "label": "GPT-4.1",
+      "mode": "search",
+      "provider": "OPENAI"
+    },
+    "gpt4o": {
+      "description": "OpenAI 的多功能模型",
+      "label": "GPT-4o",
+      "mode": "search",
+      "provider": "OPENAI"
+    },
+    "gpt5": {
+      "description": "OpenAI 的最新模型",
+      "label": "GPT-5",
+      "mode": "search",
+      "provider": "OPENAI"
+    },
+    "gpt51": {
+      "description": "OpenAI 的最新模型",
+      "label": "GPT-5.1",
+      "mode": "search",
+      "provider": "OPENAI"
+    },
+    "gpt51_low_thinking": {
+      "description": "OpenAI 最新的低推理成本模型",
+      "label": "GPT-5.1 Low Thinking",
+      "mode": "search",
+      "provider": "OPENAI"
+    },
+    "gpt51_thinking": {
+      "description": "OpenAI 最新具备思考能力的模型",
+      "label": "GPT-5.1 Thinking",
+      "mode": "search",
+      "provider": "OPENAI"
+    },
+    "gpt52": {
+      "description": "OpenAI 的最新模型",
+      "label": "GPT-5.2",
+      "mode": "search",
+      "provider": "OPENAI"
+    },
+    "gpt52_pro": {
+      "description": "OpenAI 最强大的推理模型",
+      "label": "GPT-5.2 Pro",
+      "mode": "search",
+      "provider": "OPENAI"
+    },
+    "gpt52_thinking": {
+      "description": "OpenAI 最新具备思考能力的模型",
+      "label": "GPT-5.2 Thinking",
+      "mode": "search",
+      "provider": "OPENAI"
+    },
+    "gpt53codex": {
+      "description": "OpenAI 的编码模型",
+      "label": "GPT-5.3 Codex",
+      "mode": "search",
+      "provider": "OPENAI"
+    },
+    "gpt54": {
+      "description": "OpenAI 的多功能模型",
+      "label": "GPT-5.4",
+      "mode": "search",
+      "provider": "OPENAI"
+    },
+    "gpt54_thinking": {
+      "description": "OpenAI 的具备思考能力的多功能模型",
+      "label": "GPT-5.4 Thinking",
+      "mode": "search",
+      "provider": "OPENAI"
+    },
+    "gpt55": {
+      "description": "OpenAI 的最新模型",
+      "label": "GPT-5.5",
+      "mode": "search",
+      "provider": "OPENAI"
+    },
+    "gpt55_thinking": {
+      "description": "OpenAI 最新具备思考能力的模型",
+      "label": "GPT-5.5 Thinking",
+      "mode": "search",
+      "provider": "OPENAI"
+    },
+    "gpt56_sol": {
+      "description": "OpenAI 最强大的模型",
+      "label": "GPT-5.6 Sol",
+      "mode": "search",
+      "provider": "OPENAI"
+    },
+    "gpt56_sol_thinking": {
+      "description": "具备思考能力的 OpenAI 最强大模型",
+      "label": "GPT-5.6 Sol Thinking",
+      "mode": "search",
+      "provider": "OPENAI"
+    },
+    "gpt56_terra": {
+      "description": "OpenAI 的多功能模型",
+      "label": "GPT-5.6 Terra",
+      "mode": "search",
+      "provider": "OPENAI"
+    },
+    "gpt56_terra_thinking": {
+      "description": "OpenAI 的具备思考能力的多功能模型",
+      "label": "GPT-5.6 Terra Thinking",
+      "mode": "search",
+      "provider": "OPENAI"
+    },
+    "gpt5_mini": {
+      "description": "OpenAI 的精简模型",
+      "label": "GPT-5 Mini",
+      "mode": "search",
+      "provider": "OPENAI"
+    },
+    "gpt5_nano": {
+      "description": "OpenAI 的最小模型",
+      "label": "GPT-5 Nano",
+      "mode": "search",
+      "provider": "OPENAI"
+    },
+    "gpt5_pro": {
+      "description": "OpenAI 最新、最强大的推理模型",
+      "label": "GPT-5 Pro",
+      "mode": "search",
+      "provider": "OPENAI"
+    },
+    "gpt5_thinking": {
+      "description": "OpenAI 最新具备思考能力的模型",
+      "label": "GPT-5 Thinking",
+      "mode": "search",
+      "provider": "OPENAI"
+    },
+    "grok": {
+      "description": "xAI 的 Grok 3 模型",
+      "label": "Grok 3 Beta",
+      "mode": "search",
+      "provider": "XAI"
+    },
+    "grok4": {
+      "description": "xAI 的推理模型",
+      "label": "Grok 4",
+      "mode": "search",
+      "provider": "XAI"
+    },
+    "grok41nonreasoning": {
+      "description": "xAI 的最新模型",
+      "label": "Grok 4.1",
+      "mode": "search",
+      "provider": "XAI"
+    },
+    "grok41reasoning": {
+      "description": "xAI 的最新模型",
+      "label": "Grok 4.1",
+      "mode": "search",
+      "provider": "XAI"
+    },
+    "grok45low": {
+      "description": "xAI 最先进的模型",
+      "label": "Grok 4.5",
+      "mode": "search",
+      "provider": "XAI"
+    },
+    "grok45medium": {
+      "description": "xAI 最先进的模型",
+      "label": "Grok 4.5 Thinking",
+      "mode": "search",
+      "provider": "XAI"
+    },
+    "grok4nonthinking": {
+      "description": "xAI 的高级模型",
+      "label": "Grok 4",
+      "mode": "search",
+      "provider": "XAI"
+    },
+    "kimik25thinking": {
+      "description": "Moonshot AI 的最新模型",
+      "label": "Kimi K2.5 Thinking",
+      "mode": "search",
+      "provider": "MOONSHOT_AI"
+    },
+    "kimik26instant": {
+      "description": "Moonshot AI 的最新模型",
+      "label": "Kimi K2.6",
+      "mode": "search",
+      "provider": "MOONSHOT_AI"
+    },
+    "kimik26thinking": {
+      "description": "Moonshot AI 最新的思考型模型",
+      "label": "Kimi K2.6 Thinking",
+      "mode": "search",
+      "provider": "MOONSHOT_AI"
+    },
+    "kimik2thinking": {
+      "description": "Moonshot AI 的最新模型",
+      "label": "Kimi K2",
+      "mode": "search",
+      "provider": "MOONSHOT_AI"
+    },
+    "kimik3thinking": {
+      "description": "Moonshot AI 最新的思考型模型",
+      "label": "Kimi K3",
+      "mode": "search",
+      "provider": "MOONSHOT_AI"
+    },
+    "nanobanana2": {
+      "description": "谷歌的图像生成模型",
+      "label": "Nano Banana 2",
+      "mode": "search",
+      "provider": "GOOGLE"
+    },
+    "nanobananapro": {
+      "description": "Google 的高级图像生成模型",
+      "label": "Nano Banana Pro",
+      "mode": "search",
+      "provider": "GOOGLE"
+    },
+    "nv_nemotron_3_super": {
+      "description": "NVIDIA 的 Nemotron 3 Super 120B 模型",
+      "label": "Nemotron 3 Super",
+      "mode": "search",
+      "provider": "NVIDIA"
+    },
+    "nv_nemotron_3_ultra": {
+      "description": "英伟达的 Nemotron 3 Ultra 550B 模型",
+      "label": "Nemotron 3 Ultra",
+      "mode": "search",
+      "provider": "NVIDIA"
+    },
+    "o3pro": {
+      "description": "OpenAI 功能强大的推理模型",
+      "label": "o3-pro",
+      "mode": "search",
+      "provider": "OPENAI"
+    },
+    "o4mini": {
+      "description": "OpenAI 最新的推理模型",
+      "label": "o4-mini",
+      "mode": "research",
+      "provider": "OPENAI"
+    },
+    "pplx_agentic_research": {
+      "description": "将研究任务委派给专业的子代理",
+      "label": "Agentic research",
+      "mode": "agentic_research",
+      "provider": "PERPLEXITY"
+    },
+    "pplx_alpha": {
+      "description": "针对常规研究，快速且全面",
+      "label": "Deep research",
+      "mode": "research",
+      "provider": "PERPLEXITY"
+    },
+    "pplx_asi": {
+      "description": "计算机（默认模型）",
+      "label": "Computer",
+      "mode": "asi",
+      "provider": "ANTHROPIC"
+    },
+    "pplx_asi_fable_5": {
+      "description": "由 Claude Fable 5 驱动的电脑",
+      "label": "Claude Fable 5",
+      "mode": "asi",
+      "provider": "ANTHROPIC"
+    },
+    "pplx_asi_glm": {
+      "description": "由 GLM 5.2 驱动的电脑",
+      "label": "Preview (GLM 5.2-based)",
+      "mode": "asi",
+      "provider": "PERPLEXITY"
+    },
+    "pplx_asi_gpt54": {
+      "description": "由 GPT-5.4 驱动的电脑",
+      "label": "GPT-5.4",
+      "mode": "asi",
+      "provider": "OPENAI"
+    },
+    "pplx_asi_gpt_55": {
+      "description": "由 GPT-5.5 提供支持的电脑",
+      "label": "GPT-5.5",
+      "mode": "asi",
+      "provider": "OPENAI"
+    },
+    "pplx_asi_gpt_56_sol": {
+      "description": "由 GPT-5.6 Sol 提供动力的电脑",
+      "label": "GPT-5.6 Sol",
+      "mode": "asi",
+      "provider": "OPENAI"
+    },
+    "pplx_asi_grok_45": {
+      "description": "由 Grok 4.5 驱动的计算机",
+      "label": "Grok 4.5",
+      "mode": "asi",
+      "provider": "XAI"
+    },
+    "pplx_asi_kimi": {
+      "description": "由 Kimi K2.5 驱动的电脑",
+      "label": "Kimi K2.5",
+      "mode": "asi",
+      "provider": "FIREWORKS"
+    },
+    "pplx_asi_kimi_k3": {
+      "description": "由 Kimi K3 驱动的电脑",
+      "label": "Kimi K3",
+      "mode": "asi",
+      "provider": "MOONSHOT_AI"
+    },
+    "pplx_asi_openrouter": {
+      "description": "由 OpenRouter 驱动的计算机",
+      "label": "OpenRouter",
+      "mode": "asi",
+      "provider": "PERPLEXITY"
+    },
+    "pplx_asi_opus": {
+      "description": "由 Claude Opus 5 提供算力支持的电脑",
+      "label": "Claude Opus 5",
+      "mode": "asi",
+      "provider": "ANTHROPIC"
+    },
+    "pplx_asi_opus_fast": {
+      "description": "由 Claude Opus 5 快速模式驱动的计算机",
+      "label": "Claude Opus 5 Fast",
+      "mode": "asi",
+      "provider": "ANTHROPIC"
+    },
+    "pplx_asi_opus_thinking": {
+      "description": "由 Claude Opus 4.8 思考引擎驱动的电脑",
+      "label": "Claude Opus 4.8 Thinking",
+      "mode": "asi",
+      "provider": "ANTHROPIC"
+    },
+    "pplx_asi_qwen": {
+      "description": "由 Qwen 3.6 Plus 驱动的计算机",
+      "label": "Qwen 3.6 Plus",
+      "mode": "asi",
+      "provider": "FIREWORKS"
+    },
+    "pplx_asi_sonnet": {
+      "description": "由 Claude Sonnet 5 驱动的计算机",
+      "label": "Claude Sonnet 5",
+      "mode": "asi",
+      "provider": "ANTHROPIC"
+    },
+    "pplx_asi_sonnet_thinking": {
+      "description": "由配备思考功能的 Claude Sonnet 5 驱动的计算机",
+      "label": "Claude Sonnet 5 Thinking",
+      "mode": "asi",
+      "provider": "ANTHROPIC"
+    },
+    "pplx_beta": {
+      "description": "包含高级故障排除的多步骤任务",
+      "label": "Create files and apps",
+      "mode": "studio",
+      "provider": "PERPLEXITY"
+    },
+    "pplx_business_assistant": {
+      "description": "商务人工智能助手",
+      "label": "Business Assistant",
+      "mode": "asi",
+      "provider": "ANTHROPIC"
+    },
+    "pplx_document_review": {
+      "description": "全面的文档分析和事实核查",
+      "label": "Document Review",
+      "mode": "document_review",
+      "provider": "PERPLEXITY"
+    },
+    "pplx_pro": {
+      "description": "根据查询自动选择最合适的模型",
+      "label": "Best",
+      "mode": "search",
+      "provider": null
+    },
+    "pplx_pro_upgraded": {
+      "description": "根据查询自动选择响应速度最快的模型",
+      "label": "Pro",
+      "mode": "search",
+      "provider": "PERPLEXITY"
+    },
+    "pplx_sonar_internal_testing": {
+      "description": "声纳模型 α 变体",
+      "label": "Sonar Testing - Alpha",
+      "mode": "search",
+      "provider": "SONAR"
+    },
+    "pplx_sonar_internal_testing_v2": {
+      "description": "Sonar 模型测试版变体",
+      "label": "Sonar Testing - Beta",
+      "mode": "search",
+      "provider": "SONAR"
+    },
+    "pplx_study": {
+      "description": "用于常规研究的快速模型",
+      "label": "Study",
+      "mode": "study",
+      "provider": "PERPLEXITY"
+    },
+    "sora2": {
+      "description": "OpenAI 的视频生成模型",
+      "label": "Sora 2",
+      "mode": "search",
+      "provider": "OPENAI"
+    },
+    "sora2pro": {
+      "description": "OpenAI 的先进视频生成模型",
+      "label": "Sora 2 Pro",
+      "mode": "search",
+      "provider": "OPENAI"
+    },
+    "turbo": {
+      "description": "适应每个查询",
+      "label": "Best",
+      "mode": "search",
+      "provider": "PERPLEXITY"
+    },
+    "veo31": {
+      "description": "谷歌的视频生成模型",
+      "label": "Veo 3.1",
+      "mode": "search",
+      "provider": "GOOGLE"
+    },
+    "veo31fast": {
+      "description": "谷歌的快速视频生成模型",
+      "label": "Veo 3.1 Fast",
+      "mode": "search",
+      "provider": "GOOGLE"
+    }
+  },
+  "search_config": [
+    {
+      "audience": null,
+      "description": "Perplexity 最新的自研模型。",
+      "has_new_tag": false,
+      "is_default": false,
+      "label": "Sonar 2",
+      "non_reasoning_model": "experimental",
+      "reasoning_model": null,
+      "subscription_tier": "pro",
+      "text_only_model": false
+    },
+    {
+      "audience": null,
+      "description": "由 Claude Sonnet 5 提供支持的浏览器代理",
+      "has_new_tag": false,
+      "is_default": false,
+      "label": "Claude Sonnet 5",
+      "non_reasoning_model": "comet_browser_agent_sonnet",
+      "reasoning_model": null,
+      "subscription_tier": "pro",
+      "text_only_model": false
+    },
+    {
+      "audience": null,
+      "description": "由 Claude Opus 4.8 驱动的浏览器代理",
+      "has_new_tag": false,
+      "is_default": false,
+      "label": "Claude Opus 4.8",
+      "non_reasoning_model": "comet_browser_agent_opus",
+      "reasoning_model": null,
+      "subscription_tier": "max",
+      "text_only_model": false
+    },
+    {
+      "audience": null,
+      "description": "OpenAI 的多功能模型",
+      "has_new_tag": false,
+      "is_default": false,
+      "label": "GPT-5.6 Terra",
+      "non_reasoning_model": "gpt56_terra",
+      "reasoning_model": "gpt56_terra_thinking",
+      "subscription_tier": "pro",
+      "text_only_model": false
+    },
+    {
+      "audience": null,
+      "description": "OpenAI 最强大的模型",
+      "has_new_tag": false,
+      "is_default": false,
+      "label": "GPT-5.6 Sol",
+      "non_reasoning_model": "gpt56_sol",
+      "reasoning_model": "gpt56_sol_thinking",
+      "subscription_tier": "max",
+      "text_only_model": false
+    },
+    {
+      "audience": null,
+      "description": "谷歌的最新模型",
+      "has_new_tag": false,
+      "is_default": false,
+      "label": "Gemini 3.1 Pro",
+      "non_reasoning_model": null,
+      "reasoning_model": "gemini31pro_high",
+      "subscription_tier": "pro",
+      "text_only_model": false
+    },
+    {
+      "audience": null,
+      "description": "Anthropic 的快速模型",
+      "has_new_tag": false,
+      "is_default": false,
+      "label": "Claude Sonnet 5",
+      "non_reasoning_model": "claude50sonnet",
+      "reasoning_model": "claude50sonnetthinking",
+      "subscription_tier": "pro",
+      "text_only_model": false
+    },
+    {
+      "audience": null,
+      "description": "Anthropic 最先进的模型",
+      "has_new_tag": false,
+      "is_default": false,
+      "label": "Claude Opus 5",
+      "non_reasoning_model": "claude50opus",
+      "reasoning_model": "claude50opusthinking",
+      "subscription_tier": "max",
+      "text_only_model": false
+    },
+    {
+      "audience": null,
+      "description": "Moonshot AI 的最新模型。托管在美国。",
+      "has_new_tag": true,
+      "is_default": false,
+      "label": "Kimi K3",
+      "non_reasoning_model": null,
+      "reasoning_model": "kimik3thinking",
+      "subscription_tier": "pro",
+      "text_only_model": false
+    },
+    {
+      "audience": null,
+      "description": "Z.ai 最先进的模型。托管于美国。",
+      "has_new_tag": false,
+      "is_default": false,
+      "label": "GLM 5.2",
+      "non_reasoning_model": null,
+      "reasoning_model": "glm_5_2",
+      "subscription_tier": "pro",
+      "text_only_model": false
+    },
+    {
+      "audience": null,
+      "description": "xAI 最先进的模型",
+      "has_new_tag": false,
+      "is_default": false,
+      "label": "Grok 4.5",
+      "non_reasoning_model": "grok45low",
+      "reasoning_model": "grok45medium",
+      "subscription_tier": "pro",
+      "text_only_model": false
+    },
+    {
+      "audience": null,
+      "description": "英伟达的 Nemotron 3 Ultra 550B 模型",
+      "has_new_tag": false,
+      "is_default": false,
+      "label": "Nemotron 3 Ultra",
+      "non_reasoning_model": null,
+      "reasoning_model": "nv_nemotron_3_ultra",
+      "subscription_tier": "pro",
+      "text_only_model": false
+    }
+  ]
+}

@@ -115,9 +115,20 @@ def get_search_timeout(mode: str) -> int:
 ENDPOINT_AUTH_SESSION = f"{API_BASE_URL}/api/auth/session"
 ENDPOINT_SSE_ASK = f"{API_BASE_URL}/rest/sse/perplexity_ask"
 ENDPOINT_UPLOAD_URL = f"{API_BASE_URL}/rest/uploads/create_upload_url"
+
+# The development-side publisher reads Perplexity's official catalog and
+# commits a validated snapshot to this repository. Production servers fetch the
+# GitHub Raw snapshot instead of depending on Perplexity's browser-protected
+# endpoint directly.
+OFFICIAL_MODELS_CONFIG_URL = (
+    f"{API_BASE_URL}/rest/models/config/v2?version={API_VERSION}&source=default"
+)
+DEFAULT_MODELS_CONFIG_URL = (
+    "https://raw.githubusercontent.com/escapeWu/perplexity-ai/" "main/catalog/model_config_v2.json"
+)
 ENDPOINT_MODELS_CONFIG = os.getenv(
     "PPLX_MODELS_CONFIG_URL",
-    f"{API_BASE_URL}/rest/models/config/v2?version={API_VERSION}&source=default",
+    DEFAULT_MODELS_CONFIG_URL,
 )
 
 # The upstream catalog changes independently of this package. Keep a local
@@ -159,28 +170,20 @@ MODEL_MAPPINGS: Dict[str, Dict[Optional[str], str]] = {
     "deep research": {None: "pplx_alpha"},
 }
 
-# HTTP Headers Template
+# Generic browser-fetch headers.
+#
+# curl_cffi supplies the current User-Agent and sec-ch-ua values for the
+# selected browser impersonation. Do not pin those values here: an old,
+# internally inconsistent browser fingerprint can make Perplexity accept the
+# request but silently downgrade an explicitly selected model.
 DEFAULT_HEADERS = {
-    "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",  # noqa: E501
+    "accept": "*/*",
     "accept-language": "en-US,en;q=0.9",
-    "cache-control": "max-age=0",
     "dnt": "1",
-    "priority": "u=0, i",
-    "sec-ch-ua": '"Not;A=Brand";v="24", "Chromium";v="128"',
-    "sec-ch-ua-arch": '"x86"',
-    "sec-ch-ua-bitness": '"64"',
-    "sec-ch-ua-full-version": '"128.0.6613.120"',
-    "sec-ch-ua-full-version-list": '"Not;A=Brand";v="24.0.0.0", "Chromium";v="128.0.6613.120"',  # noqa: E501
-    "sec-ch-ua-mobile": "?0",
-    "sec-ch-ua-model": '""',
-    "sec-ch-ua-platform": '"Windows"',
-    "sec-ch-ua-platform-version": '"19.0.0"',
-    "sec-fetch-dest": "document",
-    "sec-fetch-mode": "navigate",
+    "referer": f"{API_BASE_URL}/",
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
     "sec-fetch-site": "same-origin",
-    "sec-fetch-user": "?1",
-    "upgrade-insecure-requests": "1",
-    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",  # noqa: E501
 }
 
 # Allowed file extensions for upload (documents, code, images, audio, video)

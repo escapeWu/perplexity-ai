@@ -1,11 +1,21 @@
-"""Verify the service client uses canonical model mappings and browser request metadata."""
+"""Verify every model uses canonical mappings and current browser request metadata."""
 
+import json
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from perplexity.client import Client as SyncClient
-from perplexity.config import MODEL_MAPPINGS
+from perplexity.config import DEFAULT_HEADERS, ENDPOINT_SSE_ASK, MODEL_MAPPINGS
+from perplexity.model_registry import ModelRegistry
+
+
+@pytest.fixture(autouse=True)
+def static_model_registry(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    """Keep canonical mapping tests independent from a developer's live cache."""
+    registry = ModelRegistry(cache_path=tmp_path / "missing-model-cache.json")
+    monkeypatch.setattr("perplexity.client.get_model_registry", lambda: registry)
 
 
 class RecordingSyncSession:
@@ -40,11 +50,25 @@ def test_sync_client_uses_canonical_model_mapping(mode: str, model: str | None, 
     client.own = True
     client.copilot = float("inf")
     client.file_upload = float("inf")
+    client._user_info = {"user": {"id": "account-id"}}
 
     stream = client.search("model mapping probe", mode=mode, model=model, stream=True)
     list(stream)
 
-    assert session.requests[0]["json"]["params"]["model_preference"] == slug
+    request = session.requests[0]
+    params = request["json"]["params"]
+    headers = request["headers"]
+
+    assert params["model_preference"] == slug
+    assert headers["accept"] == "text/event-stream"
+    assert headers["content-type"] == "application/json"
+    assert headers["sec-fetch-dest"] == "empty"
+    assert headers["sec-fetch-mode"] == "cors"
+    assert headers["x-pplx-account"] == "account-id"
+    assert headers["x-request-id"] == params["frontend_uuid"]
+    assert "sec-fetch-user" not in headers
+    assert "upgrade-insecure-requests" not in headers
+    assert "user-agent" not in headers
 
 
 @pytest.mark.parametrize(
@@ -63,6 +87,7 @@ def test_sync_client_uses_browser_query_source(
     client.own = True
     client.copilot = float("inf")
     client.file_upload = float("inf")
+    client._user_info = {}
 
     stream = client.search(
         "query source probe",
@@ -74,3 +99,104 @@ def test_sync_client_uses_browser_query_source(
     list(stream)
 
     assert session.requests[0]["json"]["params"]["query_source"] == expected
+
+
+def test_sync_client_uses_current_browser_ask_headers() -> None:
+    assert DEFAULT_HEADERS["accept"] == "*/*"
+    assert DEFAULT_HEADERS["sec-fetch-dest"] == "empty"
+    assert DEFAULT_HEADERS["sec-fetch-mode"] == "cors"
+    assert "sec-fetch-user" not in DEFAULT_HEADERS
+    assert "upgrade-insecure-requests" not in DEFAULT_HEADERS
+    assert "user-agent" not in DEFAULT_HEADERS
+
+    session = RecordingSyncSession()
+    client = SyncClient.__new__(SyncClient)
+    client.session = session
+    client.own = True
+    client.copilot = float("inf")
+    client.file_upload = float("inf")
+    client._user_info = {
+        "user": {
+            "id": "account-id",
+            "subscription_tier": "pro",
+        }
+    }
+
+    stream = client.search(
+        "request header probe",
+        mode="pro",
+        model="gpt-5.6-terra",
+        stream=True,
+        language="zh-CN",
+    )
+    list(stream)
+
+    request = session.requests[0]
+    params = request["json"]["params"]
+    headers = request["headers"]
+
+    assert request["url"] == ENDPOINT_SSE_ASK
+    assert headers["accept"] == "text/event-stream"
+    assert headers["content-type"] == "application/json"
+    assert headers["sec-fetch-dest"] == "empty"
+    assert headers["sec-fetch-mode"] == "cors"
+    assert headers["x-pplx-account"] == "account-id"
+    assert headers["x-request-id"] == params["frontend_uuid"]
+    assert headers["x-perplexity-request-endpoint"] == ENDPOINT_SSE_ASK
+
+
+def test_sync_client_omits_account_header_for_anonymous_requests() -> None:
+    session = RecordingSyncSession()
+    client = SyncClient.__new__(SyncClient)
+    client.session = session
+    client.own = False
+    client.copilot = 0
+    client.file_upload = 0
+    client._user_info = {}
+
+    stream = client.search("anonymous header probe", mode="auto", stream=True)
+    list(stream)
+
+    assert "x-pplx-account" not in session.requests[0]["headers"]
+
+
+def test_every_published_catalog_model_uses_current_browser_ask_headers(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    snapshot = Path(__file__).parents[1] / "catalog" / "model_config_v2.json"
+    config = json.loads(snapshot.read_text(encoding="utf-8"))
+    registry = ModelRegistry(cache_path=tmp_path / "models.json")
+    definitions = ModelRegistry._definitions_from_config(config)
+    registry._definitions = definitions
+    monkeypatch.setattr("perplexity.client.get_model_registry", lambda: registry)
+
+    callable_definitions = [definition for definition in definitions if not definition.alias]
+    assert callable_definitions
+
+    for definition in callable_definitions:
+        session = RecordingSyncSession()
+        client = SyncClient.__new__(SyncClient)
+        client.session = session
+        client.own = True
+        client.subscription_tier = "max"
+        client.copilot = float("inf")
+        client.file_upload = float("inf")
+        client._user_info = {"user": {"id": "max-account"}}
+
+        stream = client.search(
+            "published model header probe",
+            mode=definition.mode,
+            model=definition.public_name,
+            stream=True,
+        )
+        list(stream)
+
+        request = session.requests[0]
+        params = request["json"]["params"]
+        headers = request["headers"]
+        assert params["model_preference"] == definition.internal_id
+        assert headers["accept"] == "text/event-stream"
+        assert headers["sec-fetch-mode"] == "cors"
+        assert headers["x-pplx-account"] == "max-account"
+        assert headers["x-request-id"] == params["frontend_uuid"]

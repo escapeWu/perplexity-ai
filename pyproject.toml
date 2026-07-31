@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "perplexity-api"
-version = "1.13.1"
+version = "1.13.2"
 description = "Unofficial Perplexity MCP and OpenAI-compatible server with multi-account pooling"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -45,11 +45,12 @@ dev = [
 
 [project.scripts]
 perplexity = "perplexity.server.main:main"
+perplexity-model-sync = "perplexity.model_catalog_sync:main"
 
 [project.urls]
-Homepage = "https://github.com/ESousa97/perplexity-ai"
-Repository = "https://github.com/ESousa97/perplexity-ai"
-Issues = "https://github.com/ESousa97/perplexity-ai/issues"
+Homepage = "https://github.com/escapeWu/perplexity-ai"
+Repository = "https://github.com/escapeWu/perplexity-ai"
+Issues = "https://github.com/escapeWu/perplexity-ai/issues"
 
 [tool.setuptools.packages.find]
 include = ["perplexity*"]

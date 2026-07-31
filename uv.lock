@@ -1664,7 +1664,7 @@ wheels = [
 
 [[package]]
 name = "perplexity-api"
-version = "1.13.1"
+version = "1.13.2"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },

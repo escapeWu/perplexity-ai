@@ -17,6 +17,8 @@ services:
       # 格式: socks5://[user[:pass]@]host[:port][#remark]
       # 示例: socks5://127.0.0.1:1080 或 socks5://user:pass@proxy.example.com:1080
       - SOCKS_PROXY=${SOCKS_PROXY:-}
+      # 每日从 GitHub Raw 拉取由开发机发布的模型清单
+      - PPLX_MODELS_CONFIG_URL=${PPLX_MODELS_CONFIG_URL:-https://raw.githubusercontent.com/escapeWu/perplexity-ai/main/catalog/model_config_v2.json}
     volumes:
       # 挂载 token 池配置文件（必需）
       - ./token_pool_config.json:/app/token_pool_config.json

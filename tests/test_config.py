@@ -10,8 +10,12 @@ def test_api_endpoints_structure() -> None:
     assert config.ENDPOINT_AUTH_SESSION.startswith(config.API_BASE_URL)
     assert config.ENDPOINT_SSE_ASK.startswith(config.API_BASE_URL)
     assert config.ENDPOINT_UPLOAD_URL.startswith(config.API_BASE_URL)
-    assert config.ENDPOINT_MODELS_CONFIG.startswith(config.API_BASE_URL)
-    assert "config/v2" in config.ENDPOINT_MODELS_CONFIG
+    assert config.OFFICIAL_MODELS_CONFIG_URL.startswith(config.API_BASE_URL)
+    assert "config/v2" in config.OFFICIAL_MODELS_CONFIG_URL
+    assert config.DEFAULT_MODELS_CONFIG_URL.startswith(
+        "https://raw.githubusercontent.com/escapeWu/perplexity-ai/"
+    )
+    assert config.ENDPOINT_MODELS_CONFIG.startswith(("http://", "https://"))
     assert config.MODEL_CONFIG_CACHE_TTL >= 60
 
 

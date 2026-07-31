@@ -22,6 +22,7 @@ An unofficial Perplexity.ai server that exposes search capabilities through MCP 
 <img width="1894" height="989" alt="image" src="https://github.com/user-attachments/assets/4a495432-8305-4820-8b4a-d7e54986ba45" />
 
 ## Changelog
++ **2026-07-31**: v1.13.2 — Prevent all explicitly selected models from being silently downgraded by matching Perplexity's current browser request protocol, and publish a validated Pro/Max model snapshot that servers refresh daily from GitHub Raw.
 + **2026-07-30**: v1.13.1 — Restore real-time Playground progress and answer streaming for Perplexity's new block-based response protocol, reconstruct offset Markdown chunks, and deduplicate repeated lifecycle stages.
 + **2026-07-30**: v1.13.0 — Add a daily cached Perplexity model catalog with Pro/Max-aware discovery and account routing, expose live model metadata in the Playground, and remove unused client-side SDK, account automation, Labs, examples, and legacy assets for server-only deployment.
 + **2026-07-29**: v1.12.0 — Add optional structured Perplexity progress events and a live Playground stage timeline, preserve partial output across stream failures and cancellation, and align service requests with the browser `query_source` required by current models.
@@ -160,6 +161,7 @@ MCP_PORT=8000
 MCP_TOKEN=sk-123456
 PPLX_ADMIN_TOKEN=your-admin-token
 # Optional outside Docker:
+# PPLX_MODELS_CONFIG_URL=https://raw.githubusercontent.com/escapeWu/perplexity-ai/main/catalog/model_config_v2.json
 # PPLX_MODEL_CACHE_PATH=./data/model_config_v2.json
 # PPLX_MODEL_CACHE_TTL=86400
 ```
@@ -245,9 +247,10 @@ understand the extension can leave it disabled.
 
 ### Supported Models
 
-The service refreshes Perplexity's public v2 model catalog every 24 hours and
-persists it on the server. `/v1/models`, MCP `list_models`, validation, and
-upstream `model_preference` routing all use that same catalog.
+The repository publishes a validated Perplexity v2 model snapshot at
+`catalog/model_config_v2.json`. Servers fetch that snapshot from GitHub Raw
+every 24 hours and persist a local cache. `/v1/models`, MCP `list_models`,
+validation, and upstream `model_preference` routing all use that same catalog.
 
 - Pro accounts expose Pro models.
 - Max accounts expose both Pro and Max models.
@@ -258,6 +261,25 @@ upstream `model_preference` routing all use that same catalog.
 
 If the daily refresh fails, the last valid on-disk catalog remains active.
 Static built-in mappings are used only when no valid cache exists.
+
+#### Publishing a New Model Snapshot
+
+On a development machine, open Perplexity's model config endpoint in a browser
+and save the JSON, then run:
+
+```bash
+uv run perplexity-model-sync --input ~/Downloads/model_config_v2.json
+git diff -- catalog/model_config_v2.json
+git add catalog/model_config_v2.json
+git commit -m "chore: refresh Perplexity model catalog"
+git push
+```
+
+If direct access to the official endpoint works on the development machine,
+`uv run perplexity-model-sync` fetches it automatically. The command validates
+the v2 schema and usable search models, writes atomically, and never commits or
+pushes automatically. Override the server source with `PPLX_MODELS_CONFIG_URL`
+when publishing the snapshot from a fork or another branch.
 
 ### Client Configuration (e.g., ChatBox)
 

@@ -19,6 +19,7 @@
 <img width="1894" height="989" alt="image" src="https://github.com/user-attachments/assets/4a495432-8305-4820-8b4a-d7e54986ba45" />
 
 ## 更新记录
++ **2026-07-31**：v1.13.2 — 对齐 Perplexity 当前浏览器请求协议，避免所有显式选择的模型被静默降级，并发布经过校验的 Pro/Max 模型快照供服务端每日从 GitHub Raw 更新。
 + **2026-07-30**：v1.13.1 — 适配 Perplexity 新的 blocks 响应协议，恢复 Playground 实时进度与答案流式输出，正确拼接带 offset 的 Markdown 分块，并去重重复生命周期阶段。
 + **2026-07-30**：v1.13.0 — 新增每日缓存的 Perplexity 动态模型目录，按 Pro/Max 账号进行模型发现与号池路由，在 Playground 展示实时模型元数据，并为纯服务端部署移除无用的客户端 SDK、账号自动化、Labs、示例和旧资源。
 + **2026-07-29**：v1.12.0 — 新增可选的 Perplexity 结构化进度事件与 Playground 实时阶段时间线，在流式异常和取消时保留部分输出，并让服务端请求携带当前模型所需的浏览器 `query_source`。
@@ -178,6 +179,7 @@ MCP_TOKEN=sk-123456
 PPLX_ADMIN_TOKEN=your-admin-token
 
 # 非 Docker 部署时可选
+# PPLX_MODELS_CONFIG_URL=https://raw.githubusercontent.com/escapeWu/perplexity-ai/main/catalog/model_config_v2.json
 # PPLX_MODEL_CACHE_PATH=./data/model_config_v2.json
 # PPLX_MODEL_CACHE_TTL=86400
 ```
@@ -266,9 +268,10 @@ curl http://127.0.0.1:8000/v1/chat/completions \
 
 ### 支持的模型
 
-服务端每 24 小时请求一次 Perplexity 公共 v2 模型目录并持久化缓存。
+仓库在 `catalog/model_config_v2.json` 发布经过校验的 Perplexity v2
+模型清单。服务端每 24 小时从 GitHub Raw 拉取一次并持久化本地缓存。
 `/v1/models`、MCP `list_models`、参数校验和上游 `model_preference`
-都使用同一份动态目录：
+都使用同一份清单：
 
 - Pro 账号展示 Pro 模型；
 - Max 账号展示 Pro 与 Max 模型；
@@ -279,6 +282,23 @@ curl http://127.0.0.1:8000/v1/chat/completions \
 
 每日刷新失败时继续使用上一次有效的磁盘缓存；只有从未取得有效缓存时，
 才使用代码内置的保底映射。
+
+#### 发布新的模型清单
+
+在开发机浏览器中打开 Perplexity 模型配置接口并保存 JSON，然后执行：
+
+```bash
+uv run perplexity-model-sync --input ~/Downloads/model_config_v2.json
+git diff -- catalog/model_config_v2.json
+git add catalog/model_config_v2.json
+git commit -m "chore: refresh Perplexity model catalog"
+git push
+```
+
+如果开发机可以直接访问官方接口，执行 `uv run perplexity-model-sync`
+即可自动拉取。命令会校验 v2 schema 和可调用搜索模型、原子写入文件，
+但不会自动提交或推送。使用其他 fork 或分支发布时，通过
+`PPLX_MODELS_CONFIG_URL` 指定对应的 GitHub Raw 地址。
 
 ### 客户端配置示例
 
