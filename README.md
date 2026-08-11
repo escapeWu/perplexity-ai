@@ -11,40 +11,10 @@ An unofficial Perplexity.ai server that exposes search capabilities through MCP 
 `https://yourdomain.com/admin/`
 <img width="2628" height="2052" alt="image" src="https://github.com/user-attachments/assets/997f0ae0-9f76-4d53-ba28-625068b508d1" />
 
-**Log View**
-<img width="2616" height="1823" alt="image" src="https://github.com/user-attachments/assets/f6cdd0ad-8266-4e14-846a-99ed1af9dc42" />
-
 **OpenAI Playground**
 `https://yourdomain.com/playground/`
 ![img_v3_02u3_eada7873-379e-42c1-bcbf-3c0466a66ffg](https://github.com/user-attachments/assets/29d75f8e-2058-4945-b486-d50b09f140a1)
 
-**MCP Integration**
-<img width="1894" height="989" alt="image" src="https://github.com/user-attachments/assets/4a495432-8305-4820-8b4a-d7e54986ba45" />
-
-## Changelog
-+ **2026-07-31**: v1.13.2 — Prevent all explicitly selected models from being silently downgraded by matching Perplexity's current browser request protocol, and publish a validated Pro/Max model snapshot that servers refresh daily from GitHub Raw.
-+ **2026-07-30**: v1.13.1 — Restore real-time Playground progress and answer streaming for Perplexity's new block-based response protocol, reconstruct offset Markdown chunks, and deduplicate repeated lifecycle stages.
-+ **2026-07-30**: v1.13.0 — Add a daily cached Perplexity model catalog with Pro/Max-aware discovery and account routing, expose live model metadata in the Playground, and remove unused client-side SDK, account automation, Labs, examples, and legacy assets for server-only deployment.
-+ **2026-07-29**: v1.12.0 — Add optional structured Perplexity progress events and a live Playground stage timeline, preserve partial output across stream failures and cancellation, and align service requests with the browser `query_source` required by current models.
-+ **2026-07-29**: v1.11.0 — Stream OpenAI-compatible chat completions from upstream in real time by default, retain opt-in complete JSON responses with `stream: false`, add WebUI stream mode controls and working cancellation, and harden stream failover and cleanup.
-+ **2026-07-29**: v1.10.1 — Close synchronous streaming responses reliably, move user-info network calls outside the pool lock, use starvation-free smooth weighted round-robin scheduling, sync runtime dependencies, and make Playground cancellation abort active requests.
-+ **2026-07-28**: v1.10.0 — Add the current non-Max model lineup (Sonar 2, GPT-5.6 Terra, Gemini 3.1 Pro, Claude Sonnet 5, Kimi K3, GLM 5.2, Grok 4.5, and Nemotron 3 Ultra), centralize model mappings, and sync MCP/OpenAI discovery, tests, and docs.
-+ **2026-05-21**: v1.9.5 — Add agent-friendly MCP aliases for quick ask, web search, reasoning, and deep research; improve tool descriptions and tests.
-+ **2026-03-10**: v1.9.4 — Refresh the supported model lineup: add GPT-5.4 / GPT-5.4 Thinking, remove GPT-5.2 and Grok 4.1 variants, and sync MCP, OpenAI model exposure, tests, and docs.
-+ **2026-02-20**: v1.9.1 — Fix frontend version display: sync `package.json` version so admin UI shows correct `MANAGER_vX.X.X`.
-+ **2026-02-20**: v1.9.0 — Playground file attachment improvements: clipboard image paste (Ctrl+V) support; image files now show inline thumbnail previews in the input area.
-+ **2026-02-20**: v1.8.1 — Added OAI file upload support: `/v1/chat/completions` now accepts `input_file` content parts (`file_data`, `file_url`, `file_id`); added Files API (`POST/GET/DELETE /v1/files`); added file attachment UI in playground.
-+ **2026-02-20**: v1.8.0 — Simplified OAI model naming: pro mode models use base names (e.g. `gpt-5-2`), reasoning mode unified with `-thinking` suffix (e.g. `gpt-5-2-thinking`). **Breaking change**: old IDs like `gpt-5-2-search`, `gpt-5-2-thinking-reasoning` are no longer valid.
-+ **2026-02-20**: Updated model options — added Claude 4.6 Sonnet and Gemini 3.1 Pro, removed Claude 4.5 and Gemini 3.0.
-+ **2026-02-16**: Added global incognito toggle — force all queries to run in incognito mode via Admin UI or API.
-+ **2026-02-01**: Added automatic fallback mechanism (downgrades to anonymous mode when tokens fail); added real-time log viewing.
-+ **2026-01-19**: Added SKILL support (`.claude/skills/perplexity-search`).
-+ **2026-01-16**: Refactored project structure; added OpenAI endpoint adaptation.
-+ **2026-01-13**: Added heartbeat detection to monitor token health periodically and send notifications via Telegram.
-+ **2026-01-03**: Added WebUI control.
-+ **2026-01-02**: Added multi-token pool support with dynamic management (list/add/remove).
-+ **2026-01-02**: MCP responses now include a `sources` field with search result links.
-+ **2025-12-31**: Added health check endpoint: `http://127.0.0.1:8000/health`.
 
 ## Getting Started
 
@@ -94,7 +64,7 @@ Edit `token_pool_config.json` with your Perplexity account tokens:
 > - `csrf_token` corresponds to `next-auth.csrf-token`
 > - `session_token` corresponds to `__Secure-next-auth.session-token`
 
-#### Heartbeat Configuration (Optional)
+#### Heartbeat Configuration (Recommand, handle cookie expire!)
 
 Periodically checks token health and notifies via Telegram:
 
@@ -132,30 +102,6 @@ cp .env.example .env
 
 # Start services
 docker compose up -d
-```
-
-#### Build and Deploy from GitHub on a Server
-
-Production servers can deploy the checked-out source directly without waiting for
-a Docker Hub image:
-
-```bash
-git pull --ff-only origin main
-./deploy/compose.sh up
-```
-
-The deployment entrypoint validates `.env` and `token_pool_config.json`, builds the
-frontend and backend image locally, waits for the container health check, verifies
-`/health`, and prints the final service status. It preserves `.env`, token
-configuration, the `data/` cache, and Docker volumes.
-
-Additional commands:
-
-```bash
-./deploy/compose.sh config
-./deploy/compose.sh verify
-./deploy/compose.sh status
-./deploy/compose.sh logs
 ```
 
 #### docker-compose.yml Example
@@ -339,8 +285,39 @@ https://github.com/escapeWu/skills/blob/main/skills/perplexity-search/SKILL.md
 
 
 ## Star History
-[![Star History Chart](https://api.star-history.com/svg?repos=escapeWu/perplexity-ai&type=Date)](https://star-history.com/#escapeWu/perplexity-ai&Date)
 
+<a href="https://www.star-history.com/?type=date&repos=escapeWu%2Fperplexity-ai">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=escapeWu/perplexity-ai&type=date&theme=dark&legend=top-left&sealed_token=rp3Vi8ZSB1OEa331-tOQMgrr5wv-1nwAH-1AG_dSGwbIazYZebUsvw3naomkRhFRbGZ47UUwNWiRarYYr4sV7nvIJsi1k-IBJVVUF9zUN6AgkQMp_dLulw" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=escapeWu/perplexity-ai&type=date&legend=top-left&sealed_token=rp3Vi8ZSB1OEa331-tOQMgrr5wv-1nwAH-1AG_dSGwbIazYZebUsvw3naomkRhFRbGZ47UUwNWiRarYYr4sV7nvIJsi1k-IBJVVUF9zUN6AgkQMp_dLulw" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=escapeWu/perplexity-ai&type=date&legend=top-left&sealed_token=rp3Vi8ZSB1OEa331-tOQMgrr5wv-1nwAH-1AG_dSGwbIazYZebUsvw3naomkRhFRbGZ47UUwNWiRarYYr4sV7nvIJsi1k-IBJVVUF9zUN6AgkQMp_dLulw" />
+ </picture>
+</a>
+
+## Changelog
++ **2026-07-31**: v1.13.2 — Prevent all explicitly selected models from being silently downgraded by matching Perplexity's current browser request protocol, and publish a validated Pro/Max model snapshot that servers refresh daily from GitHub Raw.
++ **2026-07-30**: v1.13.1 — Restore real-time Playground progress and answer streaming for Perplexity's new block-based response protocol, reconstruct offset Markdown chunks, and deduplicate repeated lifecycle stages.
++ **2026-07-30**: v1.13.0 — Add a daily cached Perplexity model catalog with Pro/Max-aware discovery and account routing, expose live model metadata in the Playground, and remove unused client-side SDK, account automation, Labs, examples, and legacy assets for server-only deployment.
++ **2026-07-29**: v1.12.0 — Add optional structured Perplexity progress events and a live Playground stage timeline, preserve partial output across stream failures and cancellation, and align service requests with the browser `query_source` required by current models.
++ **2026-07-29**: v1.11.0 — Stream OpenAI-compatible chat completions from upstream in real time by default, retain opt-in complete JSON responses with `stream: false`, add WebUI stream mode controls and working cancellation, and harden stream failover and cleanup.
++ **2026-07-29**: v1.10.1 — Close synchronous streaming responses reliably, move user-info network calls outside the pool lock, use starvation-free smooth weighted round-robin scheduling, sync runtime dependencies, and make Playground cancellation abort active requests.
++ **2026-07-28**: v1.10.0 — Add the current non-Max model lineup (Sonar 2, GPT-5.6 Terra, Gemini 3.1 Pro, Claude Sonnet 5, Kimi K3, GLM 5.2, Grok 4.5, and Nemotron 3 Ultra), centralize model mappings, and sync MCP/OpenAI discovery, tests, and docs.
++ **2026-05-21**: v1.9.5 — Add agent-friendly MCP aliases for quick ask, web search, reasoning, and deep research; improve tool descriptions and tests.
++ **2026-03-10**: v1.9.4 — Refresh the supported model lineup: add GPT-5.4 / GPT-5.4 Thinking, remove GPT-5.2 and Grok 4.1 variants, and sync MCP, OpenAI model exposure, tests, and docs.
++ **2026-02-20**: v1.9.1 — Fix frontend version display: sync `package.json` version so admin UI shows correct `MANAGER_vX.X.X`.
++ **2026-02-20**: v1.9.0 — Playground file attachment improvements: clipboard image paste (Ctrl+V) support; image files now show inline thumbnail previews in the input area.
++ **2026-02-20**: v1.8.1 — Added OAI file upload support: `/v1/chat/completions` now accepts `input_file` content parts (`file_data`, `file_url`, `file_id`); added Files API (`POST/GET/DELETE /v1/files`); added file attachment UI in playground.
++ **2026-02-20**: v1.8.0 — Simplified OAI model naming: pro mode models use base names (e.g. `gpt-5-2`), reasoning mode unified with `-thinking` suffix (e.g. `gpt-5-2-thinking`). **Breaking change**: old IDs like `gpt-5-2-search`, `gpt-5-2-thinking-reasoning` are no longer valid.
++ **2026-02-20**: Updated model options — added Claude 4.6 Sonnet and Gemini 3.1 Pro, removed Claude 4.5 and Gemini 3.0.
++ **2026-02-16**: Added global incognito toggle — force all queries to run in incognito mode via Admin UI or API.
++ **2026-02-01**: Added automatic fallback mechanism (downgrades to anonymous mode when tokens fail); added real-time log viewing.
++ **2026-01-19**: Added SKILL support (`.claude/skills/perplexity-search`).
++ **2026-01-16**: Refactored project structure; added OpenAI endpoint adaptation.
++ **2026-01-13**: Added heartbeat detection to monitor token health periodically and send notifications via Telegram.
++ **2026-01-03**: Added WebUI control.
++ **2026-01-02**: Added multi-token pool support with dynamic management (list/add/remove).
++ **2026-01-02**: MCP responses now include a `sources` field with search result links.
++ **2025-12-31**: Added health check endpoint: `http://127.0.0.1:8000/health`.
 
 ## Upstream Project
 https://github.com/helallao/perplexity-ai 
