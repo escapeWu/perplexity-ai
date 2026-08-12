@@ -4,6 +4,7 @@ import pytest
 
 from perplexity.config import MODEL_MAPPINGS
 from perplexity.exceptions import ValidationError
+from perplexity.server.app import extract_clean_result
 from perplexity.server.utils import sanitize_query, validate_search_params
 
 
@@ -29,3 +30,26 @@ def test_validate_search_params_accepts_all_configured_models() -> None:
 
     with pytest.raises(ValidationError):
         validate_search_params("pro", "gpt-5.4", ["web"], own_account=True)
+
+
+def test_extract_clean_result_preserves_model_downgrade_metadata() -> None:
+    result = extract_clean_result(
+        {
+            "answer": "fallback answer",
+            "display_model": "turbo",
+            "user_selected_model": "grok45medium",
+            "model_downgraded": True,
+            "requested_model": "grok45medium",
+            "effective_model": "turbo",
+        }
+    )
+
+    assert result == {
+        "answer": "fallback answer",
+        "sources": [],
+        "display_model": "turbo",
+        "user_selected_model": "grok45medium",
+        "model_downgraded": True,
+        "requested_model": "grok45medium",
+        "effective_model": "turbo",
+    }

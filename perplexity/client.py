@@ -52,6 +52,29 @@ from .response_parser import UpstreamResponseAccumulator
 logger = logging.getLogger(__name__)
 
 
+def annotate_model_downgrade(
+    response: dict,
+    requested_internal_id: str | None,
+) -> bool:
+    """Mark an upstream response when Perplexity silently changes the model."""
+    if not requested_internal_id:
+        return False
+
+    selected_model = response.get("user_selected_model")
+    effective_model = response.get("display_model")
+    if (
+        selected_model != requested_internal_id
+        or not effective_model
+        or effective_model == requested_internal_id
+    ):
+        return False
+
+    response["model_downgraded"] = True
+    response["requested_model"] = requested_internal_id
+    response["effective_model"] = effective_model
+    return True
+
+
 class Client:
     """
     A client for interacting with the Perplexity AI API.
@@ -323,6 +346,8 @@ class Client:
         request_timeout = timeout if timeout and timeout > 0 else get_search_timeout(mode)
         chunks = []
         response_accumulator = UpstreamResponseAccumulator()
+        requested_internal_id = model_definition.internal_id if model is not None else None
+        downgrade_reported = False
 
         def open_response():
             return self.session.post(
@@ -337,6 +362,7 @@ class Client:
             """
             Generator for streaming responses.
             """
+            nonlocal downgrade_reported
             if resp is None:
                 # Defer opening streaming connections until the caller starts
                 # consuming the generator, avoiding leaks for unused streams.
@@ -374,6 +400,22 @@ class Client:
                                     pass
 
                             content_json = response_accumulator.normalize(content_json)
+
+                            if (
+                                annotate_model_downgrade(
+                                    content_json,
+                                    requested_internal_id,
+                                )
+                                and not downgrade_reported
+                            ):
+                                logger.warning(
+                                    "Perplexity silently downgraded the selected model: "
+                                    "requested=%s effective=%s status=%s",
+                                    requested_internal_id,
+                                    content_json.get("effective_model"),
+                                    content_json.get("status"),
+                                )
+                                downgrade_reported = True
 
                             chunks.append(content_json)
                             yield chunks[-1]

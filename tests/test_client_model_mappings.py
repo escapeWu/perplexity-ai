@@ -1,6 +1,7 @@
 """Verify every model uses canonical mappings and current browser request metadata."""
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -19,17 +20,31 @@ def static_model_registry(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
 
 
 class RecordingSyncSession:
-    def __init__(self) -> None:
+    def __init__(self, response: object | None = None) -> None:
         self.requests: list[dict[str, Any]] = []
+        self.response = response or EmptySyncResponse()
 
     def post(self, url: str, **kwargs: Any) -> object:
         self.requests.append({"url": url, **kwargs})
-        return EmptySyncResponse()
+        return self.response
 
 
 class EmptySyncResponse:
     def iter_lines(self, delimiter: bytes):
         return iter(())
+
+    def close(self) -> None:
+        pass
+
+
+class EventSyncResponse:
+    def __init__(self, events: list[dict[str, Any]]) -> None:
+        self.events = events
+
+    def iter_lines(self, delimiter: bytes):
+        del delimiter
+        for event in self.events:
+            yield f"event: message\r\ndata: {json.dumps(event)}".encode()
 
     def close(self) -> None:
         pass
@@ -158,6 +173,51 @@ def test_sync_client_omits_account_header_for_anonymous_requests() -> None:
     list(stream)
 
     assert "x-pplx-account" not in session.requests[0]["headers"]
+
+
+def test_sync_client_marks_and_logs_silent_model_downgrade(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    session = RecordingSyncSession(
+        EventSyncResponse(
+            [
+                {
+                    "display_model": "turbo",
+                    "user_selected_model": "grok45medium",
+                    "status": "COMPLETED",
+                }
+            ]
+        )
+    )
+    client = SyncClient.__new__(SyncClient)
+    client.session = session
+    client.own = True
+    client.subscription_tier = "pro"
+    client.copilot = float("inf")
+    client.file_upload = float("inf")
+    client._user_info = {"user": {"id": "account-id"}}
+
+    with caplog.at_level(logging.WARNING, logger="perplexity.client"):
+        events = list(
+            client.search(
+                "downgrade probe",
+                mode="reasoning",
+                model="grok-4.5-thinking",
+                stream=True,
+            )
+        )
+
+    assert events == [
+        {
+            "display_model": "turbo",
+            "user_selected_model": "grok45medium",
+            "status": "COMPLETED",
+            "model_downgraded": True,
+            "requested_model": "grok45medium",
+            "effective_model": "turbo",
+        }
+    ]
+    assert "silently downgraded" in caplog.text
 
 
 def test_every_published_catalog_model_uses_current_browser_ask_headers(

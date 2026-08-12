@@ -119,6 +119,19 @@ def extract_clean_result(response: Dict[str, Any]) -> Dict[str, Any]:
     """Extract the final answer and source links from the search response."""
     result = {}
 
+    # Preserve upstream model-selection metadata so MCP callers and server logs
+    # can distinguish a successful requested-model response from a silent
+    # Perplexity fallback to Best/turbo.
+    for key in (
+        "display_model",
+        "user_selected_model",
+        "model_downgraded",
+        "requested_model",
+        "effective_model",
+    ):
+        if key in response:
+            result[key] = response[key]
+
     # 提取最终答案
     if "answer" in response:
         result["answer"] = response["answer"]

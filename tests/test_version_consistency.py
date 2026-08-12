@@ -14,13 +14,9 @@ def test_python_and_web_versions_stay_in_sync():
     )
     assert version_match is not None, "pyproject.toml is missing project.version"
 
-    package = json.loads(
-        (ROOT / "perplexity/server/web/package.json").read_text(encoding="utf-8")
-    )
+    package = json.loads((ROOT / "perplexity/server/web/package.json").read_text(encoding="utf-8"))
     package_lock = json.loads(
-        (ROOT / "perplexity/server/web/package-lock.json").read_text(
-            encoding="utf-8"
-        )
+        (ROOT / "perplexity/server/web/package-lock.json").read_text(encoding="utf-8")
     )
 
     versions = {
@@ -30,3 +26,8 @@ def test_python_and_web_versions_stay_in_sync():
         "package-lock root package": package_lock["packages"][""]["version"],
     }
     assert len(set(versions.values())) == 1, f"Version metadata drifted: {versions}"
+
+
+def test_curl_cffi_has_current_browser_fingerprints():
+    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    assert '"curl_cffi>=0.15.0,<0.16.0"' in pyproject
