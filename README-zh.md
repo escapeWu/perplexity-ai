@@ -13,12 +13,14 @@
 <img width="2616" height="1823" alt="image" src="https://github.com/user-attachments/assets/f6cdd0ad-8266-4e14-846a-99ed1af9dc42" />
 
 **OpenAI Playground**
-![img_v3_02u3_eada7873-379e-42c1-bcbf-3c0466a66ffg](https://github.com/user-attachments/assets/29d75f8e-2058-4945-b486-d50b09f140a1)
+`https://yourdomain.com/playground/`
+![支持持久化原生多轮会话的 OpenAI Playground](docs/images/openai-playground-native-sessions.png)
 
 **MCP 集成**
 <img width="1894" height="989" alt="image" src="https://github.com/user-attachments/assets/4a495432-8305-4820-8b4a-d7e54986ba45" />
 
 ## 更新记录
++ **2026-08-13**：v1.14.0 — Playground 新增服务端持久化会话、响应式会话侧边栏和 Perplexity 原生 follow-up；每个会话首次发送后永久绑定一个账号，禁止跨账号故障转移。
 + **2026-08-12**：v1.13.3 — 升级 curl-cffi 浏览器指纹，避免 Grok 4.5 和 Claude Sonnet 5 请求被静默回退到 Best/turbo；当上游再次降级时，保留请求模型与实际模型元数据并输出服务端告警。
 + **2026-07-31**：v1.13.2 — 对齐 Perplexity 当前浏览器请求协议，避免所有显式选择的模型被静默降级，并发布经过校验的 Pro/Max 模型快照供服务端每日从 GitHub Raw 更新。
 + **2026-07-30**：v1.13.1 — 适配 Perplexity 新的 blocks 响应协议，恢复 Playground 实时进度与答案流式输出，正确拼接带 offset 的 Markdown 分块，并去重重复生命周期阶段。
