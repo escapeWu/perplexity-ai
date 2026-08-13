@@ -141,30 +141,6 @@ PPLX_ADMIN_TOKEN=your-admin-token
 
 Configure multiple Perplexity account tokens to enable load balancing and high availability. See the "Prepare Configuration" section above for the JSON structure.
 
-## Playground Conversations
-
-The bundled Playground at `/playground/` has server-backed conversations. The
-sidebar can create, reopen, rename, and delete conversations, while each turn
-continues the native Perplexity thread instead of resending the entire visible
-message history.
-
-On the first send, the server selects one healthy account compatible with the
-chosen model and permanently locks that conversation to the account. A locked
-conversation never rotates, downgrades, or falls back to another configured or
-anonymous account. If its account is disabled, cooling down, removed, or no
-longer compatible, the request fails explicitly; create a new conversation to
-select another account. Even a failed first request keeps the account binding.
-
-Completed turns, the account binding, and the native follow-up cursor are stored
-in SQLite at `./data/webui_sessions.sqlite3` by default. Override the location
-with `PPLX_WEBUI_SESSION_DB`; Docker users should keep it under the mounted
-`/app/data` directory. Interrupted streams are not persisted.
-
-This first version applies only to the bundled WebUI. `/v1/chat/completions` and
-MCP tools keep their existing stateless behavior. Session chat currently assumes
-a single server process, and every browser using the same `MCP_TOKEN` sees the
-same conversation list; per-user isolation and multi-replica locking are not yet
-implemented.
 
 ## MCP Configuration
 
@@ -257,60 +233,6 @@ validation, and upstream `model_preference` routing all use that same catalog.
 
 If the daily refresh fails, the last valid on-disk catalog remains active.
 Static built-in mappings are used only when no valid cache exists.
-
-#### Publishing a New Model Snapshot
-
-On a development machine, open Perplexity's model config endpoint in a browser
-and save the JSON, then run:
-
-```bash
-uv run perplexity-model-sync --input ~/Downloads/model_config_v2.json
-git diff -- catalog/model_config_v2.json
-git add catalog/model_config_v2.json
-git commit -m "chore: refresh Perplexity model catalog"
-git push
-```
-
-If direct access to the official endpoint works on the development machine,
-`uv run perplexity-model-sync` fetches it automatically. The command validates
-the v2 schema and usable search models, writes atomically, and never commits or
-pushes automatically. Override the server source with `PPLX_MODELS_CONFIG_URL`
-when publishing the snapshot from a fork or another branch.
-
-### Client Configuration (e.g., ChatBox)
-
-1. Settings → AI Provider → Add Custom Provider
-2. Fill in:
-   - API Host: `http://127.0.0.1:8000`
-   - API Key: `sk-123456`
-3. Select model: `perplexity-search` or `perplexity-thinking`
-
-## Project Structure
-
-```
-perplexity/
-├── server/                  # MCP Server module
-│   ├── __init__.py
-│   ├── main.py              # Entry point
-│   ├── app.py               # FastMCP app, auth, core logic
-│   ├── mcp.py               # MCP tools and agent-friendly aliases
-│   ├── oai.py               # OpenAI compatible API
-│   ├── webui.py             # WebUI-only session and chat routes
-│   ├── webui_sessions.py    # SQLite conversations and account affinity
-│   ├── admin.py             # Admin endpoints
-│   ├── utils.py             # Server utils
-│   ├── client_pool.py       # Multi-account pool
-│   └── web/                 # Web UI (React + Vite)
-├── client.py                # Low-level API client
-├── config.py                # Config constants
-├── model_registry.py        # Dynamic tier-aware model catalog and cache
-├── exceptions.py            # Custom exceptions
-└── logger.py                # Logging config
-```
-
-## Claude Code Integration
-https://github.com/escapeWu/skills/blob/main/skills/perplexity-search/SKILL.md
-
 
 ## Star History
 
