@@ -322,7 +322,7 @@ https://github.com/escapeWu/skills/blob/main/skills/perplexity-search/SKILL.md
  </picture>
 </a>
 
-## Changelog
+## What's New
 + **2026-08-13**: v1.14.0 — Add server-backed Playground conversations with a responsive session sidebar, native Perplexity follow-up threads, persistent history, and immutable per-conversation account binding without cross-account failover.
 + **2026-08-12**: v1.13.3 — Upgrade curl-cffi browser fingerprints to stop Grok 4.5 and Claude Sonnet 5 requests from silently falling back to Best/turbo, and expose requested-versus-effective model metadata with a server warning when upstream downgrades recur.
 + **2026-07-31**: v1.13.2 — Prevent all explicitly selected models from being silently downgraded by matching Perplexity's current browser request protocol, and publish a validated Pro/Max model snapshot that servers refresh daily from GitHub Raw.
@@ -332,22 +332,6 @@ https://github.com/escapeWu/skills/blob/main/skills/perplexity-search/SKILL.md
 + **2026-07-29**: v1.11.0 — Stream OpenAI-compatible chat completions from upstream in real time by default, retain opt-in complete JSON responses with `stream: false`, add WebUI stream mode controls and working cancellation, and harden stream failover and cleanup.
 + **2026-07-29**: v1.10.1 — Close synchronous streaming responses reliably, move user-info network calls outside the pool lock, use starvation-free smooth weighted round-robin scheduling, sync runtime dependencies, and make Playground cancellation abort active requests.
 + **2026-07-28**: v1.10.0 — Add the current non-Max model lineup (Sonar 2, GPT-5.6 Terra, Gemini 3.1 Pro, Claude Sonnet 5, Kimi K3, GLM 5.2, Grok 4.5, and Nemotron 3 Ultra), centralize model mappings, and sync MCP/OpenAI discovery, tests, and docs.
-+ **2026-05-21**: v1.9.5 — Add agent-friendly MCP aliases for quick ask, web search, reasoning, and deep research; improve tool descriptions and tests.
-+ **2026-03-10**: v1.9.4 — Refresh the supported model lineup: add GPT-5.4 / GPT-5.4 Thinking, remove GPT-5.2 and Grok 4.1 variants, and sync MCP, OpenAI model exposure, tests, and docs.
-+ **2026-02-20**: v1.9.1 — Fix frontend version display: sync `package.json` version so admin UI shows correct `MANAGER_vX.X.X`.
-+ **2026-02-20**: v1.9.0 — Playground file attachment improvements: clipboard image paste (Ctrl+V) support; image files now show inline thumbnail previews in the input area.
-+ **2026-02-20**: v1.8.1 — Added OAI file upload support: `/v1/chat/completions` now accepts `input_file` content parts (`file_data`, `file_url`, `file_id`); added Files API (`POST/GET/DELETE /v1/files`); added file attachment UI in playground.
-+ **2026-02-20**: v1.8.0 — Simplified OAI model naming: pro mode models use base names (e.g. `gpt-5-2`), reasoning mode unified with `-thinking` suffix (e.g. `gpt-5-2-thinking`). **Breaking change**: old IDs like `gpt-5-2-search`, `gpt-5-2-thinking-reasoning` are no longer valid.
-+ **2026-02-20**: Updated model options — added Claude 4.6 Sonnet and Gemini 3.1 Pro, removed Claude 4.5 and Gemini 3.0.
-+ **2026-02-16**: Added global incognito toggle — force all queries to run in incognito mode via Admin UI or API.
-+ **2026-02-01**: Added automatic fallback mechanism (downgrades to anonymous mode when tokens fail); added real-time log viewing.
-+ **2026-01-19**: Added SKILL support (`.claude/skills/perplexity-search`).
-+ **2026-01-16**: Refactored project structure; added OpenAI endpoint adaptation.
-+ **2026-01-13**: Added heartbeat detection to monitor token health periodically and send notifications via Telegram.
-+ **2026-01-03**: Added WebUI control.
-+ **2026-01-02**: Added multi-token pool support with dynamic management (list/add/remove).
-+ **2026-01-02**: MCP responses now include a `sources` field with search result links.
-+ **2025-12-31**: Added health check endpoint: `http://127.0.0.1:8000/health`.
 
 ## Upstream Project
 https://github.com/helallao/perplexity-ai 
