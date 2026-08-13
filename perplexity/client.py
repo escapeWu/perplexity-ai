@@ -52,6 +52,24 @@ from .response_parser import UpstreamResponseAccumulator
 logger = logging.getLogger(__name__)
 
 
+def _normalize_follow_up(follow_up):
+    """Validate and copy the request-scoped native follow-up cursor."""
+    if follow_up is None:
+        return None, []
+    if not isinstance(follow_up, dict):
+        raise ValueError("follow_up must be an object")
+
+    backend_uuid = follow_up.get("backend_uuid")
+    attachments = follow_up.get("attachments", [])
+    if not isinstance(backend_uuid, str) or not backend_uuid.strip():
+        raise ValueError("follow_up.backend_uuid must be a non-empty string")
+    if not isinstance(attachments, list) or not all(
+        isinstance(attachment, str) for attachment in attachments
+    ):
+        raise ValueError("follow_up.attachments must be a list of strings")
+    return backend_uuid.strip(), list(attachments)
+
+
 def annotate_model_downgrade(
     response: dict,
     requested_internal_id: str | None,
@@ -257,6 +275,8 @@ class Client:
         ), "No remaining pro queries."
         assert self.file_upload - len(files) >= 0 if files else True, "File upload limit exceeded."
 
+        follow_up_backend_uuid, follow_up_attachments = _normalize_follow_up(follow_up)
+
         # Update query and file upload counters
         self.copilot = (
             self.copilot - 1 if mode in ["pro", "reasoning", "deep research"] else self.copilot
@@ -320,20 +340,19 @@ class Client:
         # Prepare the JSON payload for the query
         frontend_context_uuid = str(uuid4())
         frontend_uuid = str(uuid4())
+        effective_attachments = uploaded_files + follow_up_attachments
         json_data = {
             "query_str": query,
             "params": {
-                "attachments": (
-                    uploaded_files + follow_up["attachments"] if follow_up else uploaded_files
-                ),
+                "attachments": effective_attachments,
                 "frontend_context_uuid": frontend_context_uuid,
                 "frontend_uuid": frontend_uuid,
                 "is_incognito": incognito,
                 "language": language,
-                "last_backend_uuid": (follow_up["backend_uuid"] if follow_up else None),
+                "last_backend_uuid": follow_up_backend_uuid,
                 "mode": "concise" if mode == "auto" else "copilot",
                 "model_preference": model_definition.internal_id,
-                "query_source": "followup" if follow_up else "home",
+                "query_source": "followup" if follow_up_backend_uuid else "home",
                 "source": "default",
                 "sources": sources,
                 "version": "2.18",
@@ -348,6 +367,7 @@ class Client:
         response_accumulator = UpstreamResponseAccumulator()
         requested_internal_id = model_definition.internal_id if model is not None else None
         downgrade_reported = False
+        latest_backend_uuid = None
 
         def open_response():
             return self.session.post(
@@ -362,7 +382,7 @@ class Client:
             """
             Generator for streaming responses.
             """
-            nonlocal downgrade_reported
+            nonlocal downgrade_reported, latest_backend_uuid
             if resp is None:
                 # Defer opening streaming connections until the caller starts
                 # consuming the generator, avoiding leaks for unused streams.
@@ -400,6 +420,17 @@ class Client:
                                     pass
 
                             content_json = response_accumulator.normalize(content_json)
+
+                            backend_uuid = content_json.get("backend_uuid")
+                            if isinstance(backend_uuid, str) and backend_uuid.strip():
+                                latest_backend_uuid = backend_uuid.strip()
+                            if latest_backend_uuid:
+                                # Internal server metadata. Public API adapters deliberately
+                                # omit this field, while the WebUI session route persists it.
+                                content_json["_follow_up"] = {
+                                    "backend_uuid": latest_backend_uuid,
+                                    "attachments": list(effective_attachments),
+                                }
 
                             if (
                                 annotate_model_downgrade(

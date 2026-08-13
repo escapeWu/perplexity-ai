@@ -115,6 +115,7 @@ services:
     environment:
       - MCP_TOKEN=${MCP_TOKEN:-sk-123456}
       - PPLX_ADMIN_TOKEN=${PPLX_ADMIN_TOKEN:-}
+      # - PPLX_WEBUI_SESSION_DB=/app/data/webui_sessions.sqlite3
       # - SOCKS_PROXY=${SOCKS_PROXY:-}
     volumes:
       # Mount the token pool and persistent daily model cache
@@ -129,6 +130,7 @@ services:
 MCP_PORT=8000
 MCP_TOKEN=sk-123456
 PPLX_ADMIN_TOKEN=your-admin-token
+# PPLX_WEBUI_SESSION_DB=./data/webui_sessions.sqlite3
 # Optional outside Docker:
 # PPLX_MODELS_CONFIG_URL=https://raw.githubusercontent.com/escapeWu/perplexity-ai/main/catalog/model_config_v2.json
 # PPLX_MODEL_CACHE_PATH=./data/model_config_v2.json
@@ -138,6 +140,31 @@ PPLX_ADMIN_TOKEN=your-admin-token
 ## Multi-Token Pool (Load Balancing)
 
 Configure multiple Perplexity account tokens to enable load balancing and high availability. See the "Prepare Configuration" section above for the JSON structure.
+
+## Playground Conversations
+
+The bundled Playground at `/playground/` has server-backed conversations. The
+sidebar can create, reopen, rename, and delete conversations, while each turn
+continues the native Perplexity thread instead of resending the entire visible
+message history.
+
+On the first send, the server selects one healthy account compatible with the
+chosen model and permanently locks that conversation to the account. A locked
+conversation never rotates, downgrades, or falls back to another configured or
+anonymous account. If its account is disabled, cooling down, removed, or no
+longer compatible, the request fails explicitly; create a new conversation to
+select another account. Even a failed first request keeps the account binding.
+
+Completed turns, the account binding, and the native follow-up cursor are stored
+in SQLite at `./data/webui_sessions.sqlite3` by default. Override the location
+with `PPLX_WEBUI_SESSION_DB`; Docker users should keep it under the mounted
+`/app/data` directory. Interrupted streams are not persisted.
+
+This first version applies only to the bundled WebUI. `/v1/chat/completions` and
+MCP tools keep their existing stateless behavior. Session chat currently assumes
+a single server process, and every browser using the same `MCP_TOKEN` sees the
+same conversation list; per-user isolation and multi-replica locking are not yet
+implemented.
 
 ## MCP Configuration
 
@@ -268,6 +295,8 @@ perplexity/
 │   ├── app.py               # FastMCP app, auth, core logic
 │   ├── mcp.py               # MCP tools and agent-friendly aliases
 │   ├── oai.py               # OpenAI compatible API
+│   ├── webui.py             # WebUI-only session and chat routes
+│   ├── webui_sessions.py    # SQLite conversations and account affinity
 │   ├── admin.py             # Admin endpoints
 │   ├── utils.py             # Server utils
 │   ├── client_pool.py       # Multi-account pool

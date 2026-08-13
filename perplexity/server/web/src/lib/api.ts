@@ -52,22 +52,26 @@ export async function fetchPoolStatus(): Promise<PoolStatus> {
 export async function verifyAdminToken(token: string): Promise<boolean> {
   const resp = await fetch(`${API_BASE}/logs/tail?lines=1`, {
     headers: {
-      'X-Admin-Token': token,
-    },
+      'X-Admin-Token': token
+    }
   })
   return resp.ok
 }
 
-export async function fetchHeartbeatConfig(adminToken: string): Promise<ApiResponse<HeartbeatConfig>> {
+export async function fetchHeartbeatConfig(
+  adminToken: string
+): Promise<ApiResponse<HeartbeatConfig>> {
   const resp = await fetch(`${API_BASE}/heartbeat/config`, {
     headers: {
-      'X-Admin-Token': adminToken,
-    },
+      'X-Admin-Token': adminToken
+    }
   })
   return resp.json()
 }
 
-export async function fetchFallbackConfig(): Promise<ApiResponse<FallbackConfig>> {
+export async function fetchFallbackConfig(): Promise<
+  ApiResponse<FallbackConfig>
+> {
   const resp = await fetch(`${API_BASE}/fallback/config`)
   return resp.json()
 }
@@ -80,14 +84,16 @@ export async function updateFallbackConfig(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'X-Admin-Token': adminToken,
+      'X-Admin-Token': adminToken
     },
-    body: JSON.stringify(config),
+    body: JSON.stringify(config)
   })
   return resp.json()
 }
 
-export async function fetchIncognitoConfig(): Promise<ApiResponse<IncognitoConfig>> {
+export async function fetchIncognitoConfig(): Promise<
+  ApiResponse<IncognitoConfig>
+> {
   const resp = await fetch(`${API_BASE}/incognito/config`)
   return resp.json()
 }
@@ -100,9 +106,9 @@ export async function updateIncognitoConfig(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'X-Admin-Token': adminToken,
+      'X-Admin-Token': adminToken
     },
-    body: JSON.stringify(config),
+    body: JSON.stringify(config)
   })
   return resp.json()
 }
@@ -124,7 +130,7 @@ export async function apiCall(
   const resp = await fetch(url, {
     method: 'POST',
     headers,
-    body: JSON.stringify(params),
+    body: JSON.stringify(params)
   })
   return resp.json()
 }
@@ -137,9 +143,9 @@ export async function updateHeartbeatConfig(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'X-Admin-Token': adminToken,
+      'X-Admin-Token': adminToken
     },
-    body: JSON.stringify(config),
+    body: JSON.stringify(config)
   })
   return resp.json()
 }
@@ -160,8 +166,8 @@ export async function fetchLogs(
 ): Promise<LogsResponse> {
   const resp = await fetch(`${API_BASE}/logs/tail?lines=${lines}`, {
     headers: {
-      'X-Admin-Token': adminToken,
-    },
+      'X-Admin-Token': adminToken
+    }
   })
   return resp.json()
 }
@@ -178,11 +184,14 @@ export async function downloadSingleTokenConfig(
   clientId: string,
   adminToken: string
 ): Promise<TokenConfig[]> {
-  const resp = await fetch(`${API_BASE}/pool/export/${encodeURIComponent(clientId)}`, {
-    headers: {
-      'X-Admin-Token': adminToken,
-    },
-  })
+  const resp = await fetch(
+    `${API_BASE}/pool/export/${encodeURIComponent(clientId)}`,
+    {
+      headers: {
+        'X-Admin-Token': adminToken
+      }
+    }
+  )
   if (!resp.ok) {
     const error = await resp.json().catch(() => ({ message: resp.statusText }))
     throw new Error(error.message || `Export failed: ${resp.status}`)
@@ -198,9 +207,9 @@ export async function importTokenConfig(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'X-Admin-Token': adminToken,
+      'X-Admin-Token': adminToken
     },
-    body: JSON.stringify(tokens),
+    body: JSON.stringify(tokens)
   })
   return resp.json()
 }
@@ -236,7 +245,7 @@ export interface TextPart {
 export interface InputFilePart {
   type: 'input_file'
   filename: string
-  file_data: string
+  file_data?: string
 }
 
 export type ProgressStatus = 'running' | 'completed' | 'failed' | 'cancelled'
@@ -274,6 +283,28 @@ export interface ChatCompletionRequest {
   }
 }
 
+export interface ChatSession {
+  id: string
+  title: string
+  bound_client_id: string | null
+  model: string | null
+  created_at: number
+  updated_at: number
+}
+
+export interface ChatSessionDetail extends ChatSession {
+  messages: ChatMessage[]
+}
+
+export interface ChatSessionsResponse {
+  object: 'list'
+  data: ChatSession[]
+}
+
+export interface WebUIChatCompletionRequest extends ChatCompletionRequest {
+  session_id: string
+}
+
 export interface ChatCompletionChoice {
   index: number
   message: ChatMessage
@@ -287,6 +318,7 @@ export interface ChatCompletionResponse {
   model: string
   choices: ChatCompletionChoice[]
   sources?: Source[]
+  webui_session?: ChatSession
 }
 
 export interface ChatCompletionChunkDelta {
@@ -305,6 +337,7 @@ export interface ChatCompletionChunk {
     finish_reason: string | null
   }[]
   sources?: Source[]
+  webui_session?: ChatSession
   perplexity_progress?: PerplexityProgress
   error?: {
     message: string
@@ -312,16 +345,124 @@ export interface ChatCompletionChunk {
   }
 }
 
-export async function fetchOAIModels(apiToken: string): Promise<OAIModelsResponse> {
+export async function fetchOAIModels(
+  apiToken: string
+): Promise<OAIModelsResponse> {
   const resp = await fetch(`${API_BASE}/v1/models`, {
     headers: {
-      Authorization: `Bearer ${apiToken}`,
-    },
+      Authorization: `Bearer ${apiToken}`
+    }
   })
   if (!resp.ok) {
     throw new Error(`Failed to fetch models: ${resp.status}`)
   }
   return resp.json()
+}
+
+async function parseApiError(resp: Response, fallback: string): Promise<Error> {
+  const body = await resp.json().catch(() => null)
+  const message = body?.error?.message || body?.message || fallback
+  return new Error(message)
+}
+
+function webuiHeaders(apiToken: string): Record<string, string> {
+  return {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${apiToken}`
+  }
+}
+
+export async function listWebUISessions(
+  apiToken: string
+): Promise<ChatSessionsResponse> {
+  const resp = await fetch(`${API_BASE}/v1/webui/sessions`, {
+    headers: { Authorization: `Bearer ${apiToken}` }
+  })
+  if (!resp.ok) {
+    throw await parseApiError(
+      resp,
+      `Failed to load conversations: ${resp.status}`
+    )
+  }
+  return resp.json()
+}
+
+export async function createWebUISession(
+  apiToken: string,
+  title?: string
+): Promise<ChatSession> {
+  const resp = await fetch(`${API_BASE}/v1/webui/sessions`, {
+    method: 'POST',
+    headers: webuiHeaders(apiToken),
+    body: JSON.stringify(title === undefined ? {} : { title })
+  })
+  if (!resp.ok) {
+    throw await parseApiError(
+      resp,
+      `Failed to create conversation: ${resp.status}`
+    )
+  }
+  return resp.json()
+}
+
+export async function getWebUISession(
+  sessionId: string,
+  apiToken: string
+): Promise<ChatSessionDetail> {
+  const resp = await fetch(
+    `${API_BASE}/v1/webui/sessions/${encodeURIComponent(sessionId)}`,
+    {
+      headers: { Authorization: `Bearer ${apiToken}` }
+    }
+  )
+  if (!resp.ok) {
+    throw await parseApiError(
+      resp,
+      `Failed to load conversation: ${resp.status}`
+    )
+  }
+  return resp.json()
+}
+
+export async function renameWebUISession(
+  sessionId: string,
+  title: string,
+  apiToken: string
+): Promise<ChatSession> {
+  const resp = await fetch(
+    `${API_BASE}/v1/webui/sessions/${encodeURIComponent(sessionId)}`,
+    {
+      method: 'PATCH',
+      headers: webuiHeaders(apiToken),
+      body: JSON.stringify({ title })
+    }
+  )
+  if (!resp.ok) {
+    throw await parseApiError(
+      resp,
+      `Failed to rename conversation: ${resp.status}`
+    )
+  }
+  return resp.json()
+}
+
+export async function deleteWebUISession(
+  sessionId: string,
+  apiToken: string
+): Promise<void> {
+  const resp = await fetch(
+    `${API_BASE}/v1/webui/sessions/${encodeURIComponent(sessionId)}`,
+    {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${apiToken}` }
+    }
+  )
+  if (!resp.ok) {
+    throw await parseApiError(
+      resp,
+      `Failed to delete conversation: ${resp.status}`
+    )
+  }
 }
 
 // Helper to strip sources from messages before sending to API
@@ -336,23 +477,44 @@ export async function chatCompletion(
   apiToken: string,
   signal?: AbortSignal
 ): Promise<ChatCompletionResponse> {
+  return completionRequest('/v1/chat/completions', request, apiToken, signal)
+}
+
+export async function webuiChatCompletion(
+  request: WebUIChatCompletionRequest,
+  apiToken: string,
+  signal?: AbortSignal
+): Promise<ChatCompletionResponse> {
+  return completionRequest(
+    '/v1/webui/chat/completions',
+    request,
+    apiToken,
+    signal
+  )
+}
+
+async function completionRequest(
+  endpoint: string,
+  request: ChatCompletionRequest | WebUIChatCompletionRequest,
+  apiToken: string,
+  signal?: AbortSignal
+): Promise<ChatCompletionResponse> {
   const cleanedRequest = {
     ...request,
     messages: cleanMessagesForRequest(request.messages),
-    stream: false,
+    stream: false
   }
-  const resp = await fetch(`${API_BASE}/v1/chat/completions`, {
+  const resp = await fetch(`${API_BASE}${endpoint}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiToken}`,
+      Authorization: `Bearer ${apiToken}`
     },
     body: JSON.stringify(cleanedRequest),
-    signal,
+    signal
   })
   if (!resp.ok) {
-    const error = await resp.json().catch(() => ({ error: { message: resp.statusText } }))
-    throw new Error(error.error?.message || `API error: ${resp.status}`)
+    throw await parseApiError(resp, `API error: ${resp.status}`)
   }
   return resp.json()
 }
@@ -362,28 +524,49 @@ export async function* chatCompletionStream(
   apiToken: string,
   signal?: AbortSignal
 ): AsyncGenerator<ChatCompletionChunk, void, unknown> {
+  yield* completionStream('/v1/chat/completions', request, apiToken, signal)
+}
+
+export async function* webuiChatCompletionStream(
+  request: WebUIChatCompletionRequest,
+  apiToken: string,
+  signal?: AbortSignal
+): AsyncGenerator<ChatCompletionChunk, void, unknown> {
+  yield* completionStream(
+    '/v1/webui/chat/completions',
+    request,
+    apiToken,
+    signal
+  )
+}
+
+async function* completionStream(
+  endpoint: string,
+  request: ChatCompletionRequest | WebUIChatCompletionRequest,
+  apiToken: string,
+  signal?: AbortSignal
+): AsyncGenerator<ChatCompletionChunk, void, unknown> {
   const cleanedRequest = {
     ...request,
     messages: cleanMessagesForRequest(request.messages),
     stream: true,
     perplexity: {
       ...request.perplexity,
-      include_progress: request.perplexity?.include_progress ?? true,
-    },
+      include_progress: request.perplexity?.include_progress ?? true
+    }
   }
-  const resp = await fetch(`${API_BASE}/v1/chat/completions`, {
+  const resp = await fetch(`${API_BASE}${endpoint}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiToken}`,
+      Authorization: `Bearer ${apiToken}`
     },
     body: JSON.stringify(cleanedRequest),
-    signal,
+    signal
   })
 
   if (!resp.ok) {
-    const error = await resp.json().catch(() => ({ error: { message: resp.statusText } }))
-    throw new Error(error.error?.message || `API error: ${resp.status}`)
+    throw await parseApiError(resp, `API error: ${resp.status}`)
   }
 
   const reader = resp.body?.getReader()

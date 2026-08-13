@@ -7,7 +7,6 @@ import pytest
 
 from perplexity.client import Client
 
-
 MESSAGE = b'event: message\r\ndata: {"answer": "ok"}'
 END = b"event: end_of_stream\r\n"
 
@@ -163,3 +162,48 @@ def test_stream_normalizes_incremental_block_payloads() -> None:
     assert chunks[1]["chunks"] == [{"url": "https://example.com", "name": "Example"}]
     assert chunks[2]["answer"] == "Hell"
     assert chunks[3]["answer"] == "Hello"
+
+
+def test_stream_carries_native_follow_up_metadata_across_events() -> None:
+    response = FakeResponse(
+        [
+            message({"backend_uuid": "backend-1", "answer": "Hel"}),
+            message({"answer": "Hello"}),
+            END,
+        ]
+    )
+
+    chunks = list(
+        make_client(response).search(
+            "continue",
+            stream=True,
+            follow_up={
+                "backend_uuid": "backend-0",
+                "attachments": ["https://example.com/prior-file"],
+            },
+        )
+    )
+
+    assert chunks[0]["_follow_up"] == {
+        "backend_uuid": "backend-1",
+        "attachments": ["https://example.com/prior-file"],
+    }
+    assert chunks[1]["_follow_up"] == chunks[0]["_follow_up"]
+
+
+def test_non_stream_returns_latest_native_follow_up_metadata() -> None:
+    response = FakeResponse(
+        [
+            message({"backend_uuid": "backend-1", "answer": "Hel"}),
+            message({"answer": "Hello"}),
+            END,
+        ]
+    )
+
+    result = make_client(response).search("test")
+
+    assert result["answer"] == "Hello"
+    assert result["_follow_up"] == {
+        "backend_uuid": "backend-1",
+        "attachments": [],
+    }

@@ -1,0 +1,564 @@
+"""Server-backed chat sessions used only by the bundled WebUI."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import time
+import uuid
+from dataclasses import dataclass
+from typing import Any, Dict, Iterator, Optional, Union
+
+from starlette.concurrency import iterate_in_threadpool
+from starlette.requests import Request
+from starlette.responses import JSONResponse, StreamingResponse
+
+from ..model_registry import get_model_registry
+from .app import extract_clean_result, get_pool, mcp, run_query, run_query_stream
+from .oai import _create_error_response, _extract_files_from_messages, _stream_delta, _verify_auth
+from .progress import ProgressTracker, make_progress_chunk
+from .utils import parse_oai_model
+from .webui_sessions import (
+    InvalidWebUISession,
+    WebUISession,
+    WebUISessionNotFound,
+    WebUISessionStore,
+    get_webui_session_store,
+)
+
+
+class WebUIChatError(Exception):
+    """Error safe to return from the dedicated WebUI chat endpoint."""
+
+    def __init__(self, message: str, *, status_code: int = 502, error_type: str = "api_error"):
+        super().__init__(message)
+        self.status_code = status_code
+        self.error_type = error_type
+
+
+@dataclass(frozen=True)
+class _CommittedTurn:
+    session: WebUISession
+
+
+def _session_error(exc: Exception) -> JSONResponse:
+    if isinstance(exc, InvalidWebUISession):
+        return _create_error_response(str(exc), "invalid_request_error", 400)
+    if isinstance(exc, WebUISessionNotFound):
+        return _create_error_response(str(exc), "invalid_request_error", 404)
+    if isinstance(exc, WebUIChatError):
+        return _create_error_response(str(exc), exc.error_type, exc.status_code)
+    return _create_error_response(str(exc), "api_error", 500)
+
+
+def _latest_user_message(messages: Any) -> Dict[str, Any]:
+    if not isinstance(messages, list) or not messages:
+        raise InvalidWebUISession("messages must contain the current user turn")
+    for message in reversed(messages):
+        if isinstance(message, dict) and message.get("role") == "user":
+            content = message.get("content", "")
+            if not isinstance(content, (str, list)):
+                raise InvalidWebUISession(
+                    "The current user message content must be a string or content-part array"
+                )
+            return message
+    raise InvalidWebUISession("messages must contain a user message")
+
+
+def _query_from_message(message: Dict[str, Any], *, has_files: bool) -> str:
+    content = message.get("content", "")
+    if isinstance(content, str):
+        query = content.strip()
+    else:
+        query = " ".join(
+            part.get("text", "").strip()
+            for part in content
+            if isinstance(part, dict)
+            and part.get("type") == "text"
+            and isinstance(part.get("text"), str)
+            and part.get("text", "").strip()
+        )
+    if query:
+        return query
+    if has_files:
+        return "Please analyze the attached file."
+    raise InvalidWebUISession("The current user message cannot be empty")
+
+
+def _claim_account(
+    store: WebUISessionStore,
+    session: WebUISession,
+    mode: str,
+    model: Optional[str],
+) -> WebUISession:
+    """Bind one compatible healthy pool account before the first request."""
+    if session.client_id:
+        return session
+
+    pool = get_pool()
+    required_tier = get_model_registry().required_tier(mode, model)
+    excluded_ids: set[str] = set()
+    pro_mode = mode in {"pro", "reasoning", "deep research"}
+
+    for _ in range(max(1, len(pool.clients))):
+        client_id, client = pool.get_client(
+            exclude_ids=excluded_ids,
+            required_tier=required_tier,
+        )
+        if client_id is None or client is None:
+            break
+        if pro_mode and pool.get_client_state(client_id) == "downgrade":
+            excluded_ids.add(client_id)
+            continue
+
+        store.bind_client_once(session.id, client_id)
+        return store.get_session(session.id)
+
+    raise WebUIChatError(
+        "No healthy account is available for this session and model.",
+        status_code=503,
+        error_type="service_unavailable",
+    )
+
+
+def _cursor_from_data(data: Dict[str, Any]) -> tuple[str, list[str]]:
+    follow_up = data.get("_follow_up")
+    if not isinstance(follow_up, dict):
+        raise WebUIChatError("Upstream response did not include a native follow-up cursor")
+    backend_uuid = follow_up.get("backend_uuid")
+    attachments = follow_up.get("attachments", [])
+    if not isinstance(backend_uuid, str) or not backend_uuid.strip():
+        raise WebUIChatError("Upstream response did not include a native follow-up cursor")
+    if not isinstance(attachments, list) or not all(
+        isinstance(attachment, str) for attachment in attachments
+    ):
+        raise WebUIChatError("Upstream response included invalid follow-up attachments")
+    return backend_uuid, attachments
+
+
+def _query_error(result: Dict[str, Any]) -> WebUIChatError:
+    message = result.get("message", "WebUI session request failed")
+    error_type = result.get("error_type", "api_error")
+    if error_type == "ValidationError":
+        return WebUIChatError(message, status_code=400, error_type="invalid_request_error")
+    if "bound account" in str(message).lower() or error_type == "NoAvailableClients":
+        return WebUIChatError(message, status_code=503, error_type="service_unavailable")
+    return WebUIChatError(message)
+
+
+def _run_session_non_stream(
+    store: WebUISessionStore,
+    session_id: str,
+    *,
+    user_message: Dict[str, Any],
+    query: str,
+    files: Dict[str, bytes],
+    mode: str,
+    model: Optional[str],
+    model_id: str,
+) -> tuple[Dict[str, Any], WebUISession]:
+    with store.turn_lock(session_id):
+        session = _claim_account(store, store.get_session(session_id), mode, model)
+        result = run_query(
+            query,
+            mode,
+            model,
+            None,
+            "en-US",
+            False,
+            files,
+            False,
+            session.client_id,
+            session.follow_up(),
+            True,
+        )
+        if result.get("status") != "ok":
+            raise _query_error(result)
+
+        data = result.get("data", {})
+        if not isinstance(data, dict):
+            raise WebUIChatError("Upstream response was not an object")
+        backend_uuid, attachments = _cursor_from_data(data)
+        answer = data.get("answer", "")
+        if not isinstance(answer, str):
+            answer = str(answer)
+        sources = data.get("sources", [])
+        committed = store.commit_turn(
+            session_id,
+            user_content=user_message.get("content", ""),
+            assistant_content=answer,
+            sources=sources,
+            backend_uuid=backend_uuid,
+            attachments=attachments,
+            model=model_id,
+        )
+        return data, committed
+
+
+def _run_session_stream(
+    store: WebUISessionStore,
+    session_id: str,
+    *,
+    user_message: Dict[str, Any],
+    query: str,
+    files: Dict[str, bytes],
+    mode: str,
+    model: Optional[str],
+    model_id: str,
+) -> Iterator[Union[Dict[str, Any], _CommittedTurn]]:
+    """Hold the session lock until a stream fully commits or is closed."""
+    with store.turn_lock(session_id):
+        session = _claim_account(store, store.get_session(session_id), mode, model)
+        upstream = run_query_stream(
+            query,
+            mode,
+            model,
+            None,
+            "en-US",
+            False,
+            files,
+            False,
+            session.client_id,
+            session.follow_up(),
+        )
+        accumulated_answer = ""
+        latest_sources: list[Dict[str, Any]] = []
+        latest_follow_up: Optional[Dict[str, Any]] = None
+        try:
+            for upstream_chunk in upstream:
+                clean_chunk = extract_clean_result(upstream_chunk)
+                answer = clean_chunk.get("answer", "")
+                if isinstance(answer, str):
+                    _, accumulated_answer = _stream_delta(accumulated_answer, answer)
+                sources = clean_chunk.get("sources", [])
+                if isinstance(sources, list) and sources:
+                    latest_sources = sources
+                if isinstance(upstream_chunk.get("_follow_up"), dict):
+                    latest_follow_up = upstream_chunk["_follow_up"]
+                yield upstream_chunk
+
+            cursor_data: Dict[str, Any] = {"_follow_up": latest_follow_up}
+            backend_uuid, attachments = _cursor_from_data(cursor_data)
+            committed = store.commit_turn(
+                session_id,
+                user_content=user_message.get("content", ""),
+                assistant_content=accumulated_answer,
+                sources=latest_sources,
+                backend_uuid=backend_uuid,
+                attachments=attachments,
+                model=model_id,
+            )
+            yield _CommittedTurn(committed)
+        finally:
+            close = getattr(upstream, "close", None)
+            if close:
+                close()
+
+
+async def _webui_stream_response(
+    store: WebUISessionStore,
+    session_id: str,
+    *,
+    user_message: Dict[str, Any],
+    query: str,
+    files: Dict[str, bytes],
+    mode: str,
+    model: Optional[str],
+    model_id: str,
+    response_id: str,
+    created: int,
+    include_progress: bool,
+) -> StreamingResponse:
+    async def event_generator():
+        upstream = _run_session_stream(
+            store,
+            session_id,
+            user_message=user_message,
+            query=query,
+            files=files,
+            mode=mode,
+            model=model,
+            model_id=model_id,
+        )
+        accumulated_content = ""
+        latest_sources: list[Dict[str, Any]] = []
+        committed_session: Optional[WebUISession] = None
+        progress_tracker = ProgressTracker() if include_progress else None
+
+        try:
+            if progress_tracker is not None:
+                for progress in progress_tracker.update(
+                    {"text": [{"step_type": "INITIAL_QUERY", "content": {}}]}
+                ):
+                    progress_data = make_progress_chunk(response_id, created, model_id, progress)
+                    yield f"data: {json.dumps(progress_data, ensure_ascii=False)}\n\n"
+
+            async for item in iterate_in_threadpool(upstream):
+                if isinstance(item, _CommittedTurn):
+                    committed_session = item.session
+                    continue
+
+                if progress_tracker is not None:
+                    for progress in progress_tracker.update(item):
+                        progress_data = make_progress_chunk(
+                            response_id, created, model_id, progress
+                        )
+                        yield f"data: {json.dumps(progress_data, ensure_ascii=False)}\n\n"
+
+                clean_chunk = extract_clean_result(item)
+                sources = clean_chunk.get("sources", [])
+                if isinstance(sources, list) and sources:
+                    latest_sources = sources
+                answer = clean_chunk.get("answer", "")
+                if not isinstance(answer, str):
+                    continue
+                delta, accumulated_content = _stream_delta(accumulated_content, answer)
+                if not delta:
+                    continue
+                chunk_data = {
+                    "id": response_id,
+                    "object": "chat.completion.chunk",
+                    "created": created,
+                    "model": model_id,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"content": delta},
+                            "finish_reason": None,
+                        }
+                    ],
+                }
+                yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
+
+            if committed_session is None:
+                raise WebUIChatError("The session turn ended without being committed")
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            if progress_tracker is not None:
+                failed_progress = progress_tracker.finish("failed")
+                if failed_progress is not None:
+                    progress_data = make_progress_chunk(
+                        response_id, created, model_id, failed_progress
+                    )
+                    yield f"data: {json.dumps(progress_data, ensure_ascii=False)}\n\n"
+            error_data = {
+                "id": response_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": model_id,
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "error"}],
+                "error": {
+                    "message": str(exc),
+                    "type": getattr(exc, "error_type", "api_error"),
+                },
+            }
+            yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
+            yield "data: [DONE]\n\n"
+            return
+        finally:
+            close = getattr(upstream, "close", None)
+            if close:
+                try:
+                    await asyncio.shield(asyncio.to_thread(close))
+                except (RuntimeError, ValueError):
+                    pass
+
+        if progress_tracker is not None:
+            completed_progress = progress_tracker.finish("completed")
+            if completed_progress is not None:
+                progress_data = make_progress_chunk(
+                    response_id, created, model_id, completed_progress
+                )
+                yield f"data: {json.dumps(progress_data, ensure_ascii=False)}\n\n"
+
+        final_data = {
+            "id": response_id,
+            "object": "chat.completion.chunk",
+            "created": created,
+            "model": model_id,
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+            "sources": latest_sources,
+            "webui_session": committed_session.to_public_dict(),
+        }
+        yield f"data: {json.dumps(final_data, ensure_ascii=False)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@mcp.custom_route("/v1/webui/sessions", methods=["GET", "POST"])
+async def webui_sessions(request: Request) -> JSONResponse:
+    auth_error = _verify_auth(request)
+    if auth_error:
+        return auth_error
+
+    store = get_webui_session_store()
+    try:
+        if request.method == "GET":
+            sessions = [session.to_public_dict() for session in store.list_sessions()]
+            return JSONResponse({"object": "list", "data": sessions})
+
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            raise InvalidWebUISession("Request body must be an object")
+        title = body.get("title")
+        if title is not None and not isinstance(title, str):
+            raise InvalidWebUISession("Session title must be a string")
+        return JSONResponse(store.create_session(title).to_public_dict(), status_code=201)
+    except Exception as exc:
+        return _session_error(exc)
+
+
+@mcp.custom_route("/v1/webui/sessions/{session_id}", methods=["GET", "PATCH", "DELETE"])
+async def webui_session_detail(request: Request) -> JSONResponse:
+    auth_error = _verify_auth(request)
+    if auth_error:
+        return auth_error
+
+    store = get_webui_session_store()
+    session_id = request.path_params.get("session_id", "")
+    try:
+        if request.method == "GET":
+            session = store.get_session(session_id)
+            return JSONResponse(session.to_public_dict(messages=store.get_messages(session_id)))
+        if request.method == "DELETE":
+            store.delete_session(session_id)
+            return JSONResponse({"id": session_id, "deleted": True})
+
+        try:
+            body = await request.json()
+        except Exception as exc:
+            raise InvalidWebUISession("Invalid JSON body") from exc
+        if not isinstance(body, dict) or "title" not in body:
+            raise InvalidWebUISession("title is required")
+        session = store.rename_session(session_id, body["title"])
+        return JSONResponse(session.to_public_dict())
+    except Exception as exc:
+        return _session_error(exc)
+
+
+@mcp.custom_route("/v1/webui/chat/completions", methods=["POST"])
+async def webui_chat_completions(
+    request: Request,
+) -> Union[JSONResponse, StreamingResponse]:
+    """Run one native Perplexity turn inside an immutable WebUI session."""
+    auth_error = _verify_auth(request)
+    if auth_error:
+        return auth_error
+
+    try:
+        body = await request.json()
+    except Exception:
+        return _create_error_response("Invalid JSON body", "invalid_request_error", 400)
+    if not isinstance(body, dict):
+        return _create_error_response(
+            "Request body must be an object", "invalid_request_error", 400
+        )
+
+    try:
+        session_id = body.get("session_id")
+        if not isinstance(session_id, str):
+            raise InvalidWebUISession("session_id is required")
+        store = get_webui_session_store()
+        store.get_session(session_id)
+
+        model_id = body.get("model")
+        if not isinstance(model_id, str) or not model_id:
+            raise InvalidWebUISession("model is required")
+        stream = body.get("stream", True)
+        if not isinstance(stream, bool):
+            raise InvalidWebUISession("stream must be a boolean")
+        options = body.get("perplexity", {})
+        if not isinstance(options, dict):
+            raise InvalidWebUISession("perplexity must be an object")
+        include_progress = options.get("include_progress", False)
+        if not isinstance(include_progress, bool):
+            raise InvalidWebUISession("perplexity.include_progress must be a boolean")
+
+        mode, model = parse_oai_model(
+            model_id,
+            get_pool().get_model_subscription_tiers(),
+        )
+        user_message = _latest_user_message(body.get("messages"))
+        try:
+            files = await asyncio.to_thread(_extract_files_from_messages, [user_message])
+        except LookupError as exc:
+            return _create_error_response(str(exc), "invalid_request_error", 404)
+        except ValueError as exc:
+            return _create_error_response(str(exc), "invalid_request_error", 400)
+        query = _query_from_message(user_message, has_files=bool(files))
+    except ValueError as exc:
+        return _create_error_response(str(exc), "invalid_request_error", 400)
+    except Exception as exc:
+        return _session_error(exc)
+
+    response_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
+    created = int(time.time())
+    if stream:
+        return await _webui_stream_response(
+            store,
+            session_id,
+            user_message=user_message,
+            query=query,
+            files=files,
+            mode=mode,
+            model=model,
+            model_id=model_id,
+            response_id=response_id,
+            created=created,
+            include_progress=include_progress,
+        )
+
+    try:
+        data, committed = await asyncio.to_thread(
+            _run_session_non_stream,
+            store,
+            session_id,
+            user_message=user_message,
+            query=query,
+            files=files,
+            mode=mode,
+            model=model,
+            model_id=model_id,
+        )
+    except Exception as exc:
+        return _session_error(exc)
+
+    answer = data.get("answer", "")
+    sources = data.get("sources", [])
+    prompt_tokens = len(query.split())
+    completion_tokens = len(answer.split()) if isinstance(answer, str) else 0
+    return JSONResponse(
+        {
+            "id": response_id,
+            "object": "chat.completion",
+            "created": created,
+            "model": model_id,
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": answer},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": prompt_tokens + completion_tokens,
+            },
+            "sources": sources,
+            "webui_session": committed.to_public_dict(),
+        }
+    )

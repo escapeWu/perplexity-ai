@@ -8,7 +8,12 @@ interface TokenInputProps {
   isLoading?: boolean
 }
 
-export function TokenInput({ token, onSave, isConnected, isLoading }: TokenInputProps) {
+export function TokenInput({
+  token,
+  onSave,
+  isConnected,
+  isLoading
+}: TokenInputProps) {
   const [showToken, setShowToken] = useState(false)
   const [inputValue, setInputValue] = useState(token)
 
@@ -19,25 +24,27 @@ export function TokenInput({ token, onSave, isConnected, isLoading }: TokenInput
   const isSaved = inputValue === token
 
   return (
-    <div className="p-4 border-2 border-gray-700 bg-gray-900/50">
-      <div className="flex flex-col md:flex-row items-start md:items-center gap-4">
-        <div className="flex items-center gap-2">
+    <div className="border-2 border-gray-700 bg-gray-900/50 p-2 md:p-4">
+      <div className="flex min-w-0 items-center gap-2 md:gap-4">
+        <div className="flex shrink-0 items-center gap-2">
           <span
-            className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-gray-600'}`}
+            className={`size-3 rounded-full ${
+              isConnected ? 'animate-pulse bg-green-500' : 'bg-gray-600'
+            }`}
           ></span>
-          <span className="font-mono text-xs uppercase tracking-widest text-gray-500">
+          <span className="hidden font-mono text-xs uppercase tracking-widest text-gray-500 min-[430px]:inline">
             {isConnected ? 'CONNECTED' : 'DISCONNECTED'}
           </span>
         </div>
 
-        <div className="flex gap-2 flex-1 w-full md:w-auto">
-          <div className="flex-1 flex items-center bg-gray-800 border border-gray-700 focus-within:border-acid transition-colors">
+        <div className="flex min-w-0 flex-1 gap-2">
+          <div className="flex min-w-0 flex-1 items-center border border-gray-700 bg-gray-800 transition-colors focus-within:border-acid">
             <div className="pl-3 text-gray-500">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 viewBox="0 0 20 20"
                 fill="currentColor"
-                className="w-4 h-4"
+                className="size-4"
               >
                 <path
                   fillRule="evenodd"
@@ -52,19 +59,19 @@ export function TokenInput({ token, onSave, isConnected, isLoading }: TokenInput
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && !isSaved && handleSave()}
               placeholder="API_TOKEN..."
-              className="flex-1 bg-transparent text-white font-mono text-sm px-3 py-2 focus:outline-none placeholder-gray-600"
+              className="min-w-0 flex-1 bg-transparent px-2 py-2 font-mono text-sm text-white placeholder:text-gray-600 focus:outline-none md:px-3"
             />
             <button
               type="button"
               onClick={() => setShowToken(!showToken)}
-              className="pr-3 text-gray-500 hover:text-gray-300 transition-colors"
+              className="pr-3 text-gray-500 transition-colors hover:text-gray-300"
             >
               {showToken ? (
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   viewBox="0 0 20 20"
                   fill="currentColor"
-                  className="w-4 h-4"
+                  className="size-4"
                 >
                   <path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" />
                   <path
@@ -78,7 +85,7 @@ export function TokenInput({ token, onSave, isConnected, isLoading }: TokenInput
                   xmlns="http://www.w3.org/2000/svg"
                   viewBox="0 0 20 20"
                   fill="currentColor"
-                  className="w-4 h-4"
+                  className="size-4"
                 >
                   <path
                     fillRule="evenodd"
@@ -92,17 +99,30 @@ export function TokenInput({ token, onSave, isConnected, isLoading }: TokenInput
           <button
             onClick={handleSave}
             disabled={isSaved}
-            className={`px-4 py-2 font-bold font-mono text-sm uppercase transition-colors ${
+            className={`shrink-0 px-2 py-2 font-mono text-sm font-bold uppercase transition-colors md:px-4 ${
               isSaved
                 ? isConnected
-                  ? 'bg-acid text-black cursor-default'
-                  : 'bg-gray-700 text-gray-500 cursor-default'
-                : 'bg-neon-pink text-black hover:bg-white shadow-hard-acid hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px]'
+                  ? 'cursor-default bg-acid text-black'
+                  : 'cursor-default bg-gray-700 text-gray-500'
+                : 'bg-neon-pink text-black shadow-hard-acid hover:translate-x-[2px] hover:translate-y-[2px] hover:bg-white hover:shadow-none'
             }`}
           >
-            {isLoading ? '...' : isSaved ? (isConnected ? 'READY' : 'SAVED') : 'SAVE'}
+            {isLoading
+              ? '...'
+              : isSaved
+                ? isConnected
+                  ? 'READY'
+                  : 'SAVED'
+                : 'SAVE'}
           </button>
         </div>
+
+        <a
+          href="/admin/"
+          className="shrink-0 border border-gray-600 px-2 py-2 font-mono text-[10px] uppercase text-gray-400 transition-colors hover:border-acid hover:text-acid md:border-2 md:px-3 md:text-xs"
+        >
+          &larr; Admin
+        </a>
       </div>
     </div>
   )

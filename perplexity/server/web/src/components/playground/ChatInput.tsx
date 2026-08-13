@@ -2,13 +2,7 @@ import { useState, useCallback, useRef, useEffect, KeyboardEvent } from 'react'
 import { OAIModel } from 'lib/api'
 import { CustomSelect } from './CustomSelect'
 
-function FileChip({
-  file,
-  onRemove,
-}: {
-  file: File
-  onRemove?: () => void
-}) {
+function FileChip({ file, onRemove }: { file: File; onRemove?: () => void }) {
   const isImage = file.type.startsWith('image/')
   const [objectUrl, setObjectUrl] = useState<string | null>(null)
 
@@ -21,17 +15,17 @@ function FileChip({
 
   if (isImage && objectUrl) {
     return (
-      <div className="relative group/chip inline-block">
+      <div className="group/chip relative inline-block">
         <img
           src={objectUrl}
           alt={file.name}
           title={file.name}
-          className="h-16 w-16 object-cover border border-gray-600"
+          className="size-16 border border-gray-600 object-cover"
         />
         {onRemove && (
           <button
             onClick={onRemove}
-            className="absolute top-0 right-0 bg-black/70 text-gray-400 hover:text-danger leading-none w-5 h-5 flex items-center justify-center opacity-0 group-hover/chip:opacity-100 transition-opacity text-sm"
+            className="absolute right-0 top-0 flex size-5 items-center justify-center bg-black/70 text-sm leading-none text-gray-400 opacity-0 transition-opacity hover:text-danger group-hover/chip:opacity-100"
             title="Remove"
           >
             ×
@@ -42,7 +36,7 @@ function FileChip({
   }
 
   return (
-    <div className="flex items-center gap-1 bg-gray-800 border border-gray-600 text-gray-300 font-mono text-xs px-2 py-1">
+    <div className="flex items-center gap-1 border border-gray-600 bg-gray-800 px-2 py-1 font-mono text-xs text-gray-300">
       <span className="max-w-[160px] truncate" title={file.name}>
         {file.name}
       </span>
@@ -50,7 +44,7 @@ function FileChip({
       {onRemove && (
         <button
           onClick={onRemove}
-          className="ml-1 text-gray-500 hover:text-danger transition-colors leading-none"
+          className="ml-1 leading-none text-gray-500 transition-colors hover:text-danger"
           title="Remove file"
         >
           ×
@@ -61,15 +55,99 @@ function FileChip({
 }
 
 const ACCEPTED_EXTENSIONS = [
-  '.pdf','.doc','.docx','.pptx','.xlsx','.csv','.txt','.text','.md','.markdown',
-  '.rmd','.latex','.tex','.py','.js','.ts','.jsx','.tsx','.go','.rs','.java',
-  '.cpp','.c','.cxx','.h','.hpp','.cs','.rb','.php','.pl','.pm','.swift',
-  '.kt','.kts','.scala','.dart','.lua','.r','.R','.m','.sh','.bash','.zsh',
-  '.fish','.ksh','.bat','.sql','.html','.htm','.css','.less','.xml','.json',
-  '.yaml','.yml','.toml','.ini','.conf','.config','.in','.log','.coffee',
-  '.diff','.ipynb','.jpg','.jpeg','.jpe','.jp2','.png','.gif','.bmp','.tiff',
-  '.tif','.svg','.webp','.ico','.avif','.heic','.heif','.mp3','.wav','.aiff',
-  '.ogg','.flac','.mp4','.mpeg','.mpg','.mov','.avi','.flv','.webm','.wmv','.3gp',
+  '.pdf',
+  '.doc',
+  '.docx',
+  '.pptx',
+  '.xlsx',
+  '.csv',
+  '.txt',
+  '.text',
+  '.md',
+  '.markdown',
+  '.rmd',
+  '.latex',
+  '.tex',
+  '.py',
+  '.js',
+  '.ts',
+  '.jsx',
+  '.tsx',
+  '.go',
+  '.rs',
+  '.java',
+  '.cpp',
+  '.c',
+  '.cxx',
+  '.h',
+  '.hpp',
+  '.cs',
+  '.rb',
+  '.php',
+  '.pl',
+  '.pm',
+  '.swift',
+  '.kt',
+  '.kts',
+  '.scala',
+  '.dart',
+  '.lua',
+  '.r',
+  '.R',
+  '.m',
+  '.sh',
+  '.bash',
+  '.zsh',
+  '.fish',
+  '.ksh',
+  '.bat',
+  '.sql',
+  '.html',
+  '.htm',
+  '.css',
+  '.less',
+  '.xml',
+  '.json',
+  '.yaml',
+  '.yml',
+  '.toml',
+  '.ini',
+  '.conf',
+  '.config',
+  '.in',
+  '.log',
+  '.coffee',
+  '.diff',
+  '.ipynb',
+  '.jpg',
+  '.jpeg',
+  '.jpe',
+  '.jp2',
+  '.png',
+  '.gif',
+  '.bmp',
+  '.tiff',
+  '.tif',
+  '.svg',
+  '.webp',
+  '.ico',
+  '.avif',
+  '.heic',
+  '.heif',
+  '.mp3',
+  '.wav',
+  '.aiff',
+  '.ogg',
+  '.flac',
+  '.mp4',
+  '.mpeg',
+  '.mpg',
+  '.mov',
+  '.avi',
+  '.flv',
+  '.webm',
+  '.wmv',
+  '.3gp'
 ].join(',')
 
 function formatBytes(bytes: number): string {
@@ -109,7 +187,7 @@ export function ChatInput({
   onStop,
   pendingFiles = [],
   onAddFiles,
-  onRemoveFile,
+  onRemoveFile
 }: ChatInputProps) {
   const [value, setValue] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -159,10 +237,10 @@ export function ChatInput({
   )
 
   return (
-    <div className="flex flex-col gap-2 p-4 border-t-2 border-gray-700 bg-concrete">
+    <div className="flex flex-col gap-2 border-t-2 border-gray-700 bg-concrete p-3 md:p-4">
       {/* File chips */}
       {pendingFiles.length > 0 && (
-        <div className="flex flex-wrap gap-2 items-end">
+        <div className="flex flex-wrap items-end gap-2">
           {pendingFiles.map((file, idx) => (
             <FileChip
               key={idx}
@@ -174,12 +252,12 @@ export function ChatInput({
       )}
 
       {/* Input row */}
-      <div className="flex gap-3 items-end">
+      <div className="flex flex-wrap items-end gap-2 md:flex-nowrap md:gap-3">
         {onClear && (
           <button
             onClick={onClear}
             disabled={disabled}
-            className="bg-gray-800 text-gray-400 font-mono font-bold uppercase px-3 py-2 border-2 border-gray-600 hover:text-danger hover:border-danger transition-all disabled:opacity-50 disabled:cursor-not-allowed h-[42px] mb-[1px]"
+            className="mb-px h-[42px] border-2 border-gray-600 bg-gray-800 px-3 py-2 font-mono font-bold uppercase text-gray-400 transition-all hover:border-danger hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
             title="Clear Chat"
           >
             <svg
@@ -188,7 +266,7 @@ export function ChatInput({
               viewBox="0 0 24 24"
               strokeWidth={2}
               stroke="currentColor"
-              className="w-5 h-5"
+              className="size-5"
             >
               <path
                 strokeLinecap="round"
@@ -214,7 +292,7 @@ export function ChatInput({
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={disabled}
-            className="bg-gray-800 text-gray-400 font-mono font-bold uppercase px-3 py-2 border-2 border-gray-600 hover:text-acid hover:border-acid transition-all disabled:opacity-50 disabled:cursor-not-allowed h-[42px] mb-[1px]"
+            className="mb-px h-[42px] border-2 border-gray-600 bg-gray-800 px-3 py-2 font-mono font-bold uppercase text-gray-400 transition-all hover:border-acid hover:text-acid disabled:cursor-not-allowed disabled:opacity-50"
             title="Attach files"
           >
             <svg
@@ -223,7 +301,7 @@ export function ChatInput({
               viewBox="0 0 24 24"
               strokeWidth={2}
               stroke="currentColor"
-              className="w-5 h-5"
+              className="size-5"
             >
               <path
                 strokeLinecap="round"
@@ -234,7 +312,7 @@ export function ChatInput({
           </button>
         )}
 
-        <div className="flex-1 flex flex-col gap-2">
+        <div className="order-first flex w-full flex-col gap-2 md:order-none md:w-auto md:flex-1">
           <textarea
             value={value}
             onChange={(e) => setValue(e.target.value)}
@@ -243,7 +321,7 @@ export function ChatInput({
             disabled={disabled}
             placeholder={placeholder}
             rows={1}
-            className="w-full bg-void border-2 border-gray-600 text-gray-200 font-sans px-4 py-2 resize-none focus:border-acid focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed min-h-[42px]"
+            className="min-h-[42px] w-full resize-none border-2 border-gray-600 bg-void px-4 py-2 font-sans text-gray-200 focus:border-acid focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
           />
         </div>
 
@@ -261,10 +339,10 @@ export function ChatInput({
             type="button"
             onClick={() => onStreamEnabledChange(!streamEnabled)}
             disabled={disabled}
-            className={`font-mono font-bold uppercase px-3 py-2 border-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed h-[42px] mb-[1px] ${
+            className={`mb-px h-[42px] border-2 p-2 font-mono text-xs font-bold uppercase transition-all disabled:cursor-not-allowed disabled:opacity-50 sm:px-3 sm:text-sm ${
               streamEnabled
-                ? 'bg-neon-blue/20 border-neon-blue text-neon-blue'
-                : 'bg-gray-800 border-gray-600 text-gray-400'
+                ? 'border-neon-blue bg-neon-blue/20 text-neon-blue'
+                : 'border-gray-600 bg-gray-800 text-gray-400'
             }`}
             title={
               streamEnabled
@@ -280,7 +358,7 @@ export function ChatInput({
           <button
             type="button"
             onClick={onStop}
-            className="bg-danger text-white font-mono font-bold uppercase px-6 py-2 border-2 border-danger shadow-hard hover:shadow-hard-hover hover:translate-x-[2px] hover:translate-y-[2px] transition-all h-[42px] mb-[1px]"
+            className="mb-px h-[42px] border-2 border-danger bg-danger px-3 py-2 font-mono text-sm font-bold uppercase text-white shadow-hard transition-all hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-hard-hover sm:px-6"
           >
             Stop
           </button>
@@ -288,7 +366,7 @@ export function ChatInput({
           <button
             onClick={handleSend}
             disabled={disabled || (!value.trim() && pendingFiles.length === 0)}
-            className="bg-acid text-void font-mono font-bold uppercase px-6 py-2 border-2 border-acid shadow-hard hover:shadow-hard-hover hover:translate-x-[2px] hover:translate-y-[2px] transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-hard disabled:hover:translate-x-0 disabled:hover:translate-y-0 h-[42px] mb-[1px]"
+            className="mb-px h-[42px] border-2 border-acid bg-acid px-3 py-2 font-mono text-sm font-bold uppercase text-void shadow-hard transition-all hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-hard-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-x-0 disabled:hover:translate-y-0 disabled:hover:shadow-hard sm:px-6"
           >
             Send
           </button>

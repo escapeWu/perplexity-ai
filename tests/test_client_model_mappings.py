@@ -8,7 +8,12 @@ from typing import Any
 import pytest
 
 from perplexity.client import Client as SyncClient
-from perplexity.config import DEFAULT_HEADERS, ENDPOINT_SSE_ASK, MODEL_MAPPINGS
+from perplexity.config import (
+    DEFAULT_HEADERS,
+    ENDPOINT_SSE_ASK,
+    ENDPOINT_UPLOAD_URL,
+    MODEL_MAPPINGS,
+)
 from perplexity.model_registry import ModelRegistry
 
 
@@ -48,6 +53,36 @@ class EventSyncResponse:
 
     def close(self) -> None:
         pass
+
+
+class JsonResponse:
+    def __init__(self, payload: dict[str, Any], ok: bool = True) -> None:
+        self.payload = payload
+        self.ok = ok
+
+    def json(self) -> dict[str, Any]:
+        return self.payload
+
+
+class UploadRecordingSession:
+    def __init__(self) -> None:
+        self.requests: list[dict[str, Any]] = []
+
+    def post(self, url: str, **kwargs: Any) -> object:
+        self.requests.append({"url": url, **kwargs})
+        if url == ENDPOINT_UPLOAD_URL:
+            return JsonResponse(
+                {
+                    "fields": {},
+                    "s3_bucket_url": "https://upload.example",
+                    "s3_object_url": "https://cdn.example/new.txt",
+                }
+            )
+        if url == "https://upload.example":
+            return JsonResponse({})
+        if url == ENDPOINT_SSE_ASK:
+            return EventSyncResponse([{"backend_uuid": "backend-1", "answer": "ok"}])
+        raise AssertionError(f"Unexpected URL: {url}")
 
 
 MODEL_CASES = [
@@ -113,7 +148,74 @@ def test_sync_client_uses_browser_query_source(
     )
     list(stream)
 
-    assert session.requests[0]["json"]["params"]["query_source"] == expected
+    params = session.requests[0]["json"]["params"]
+    assert params["query_source"] == expected
+    assert params["last_backend_uuid"] == (follow_up["backend_uuid"] if follow_up else None)
+    assert params["attachments"] == (follow_up["attachments"] if follow_up else [])
+
+
+@pytest.mark.parametrize(
+    "follow_up",
+    [
+        "backend-id",
+        {},
+        {"backend_uuid": "", "attachments": []},
+        {"backend_uuid": "backend-id", "attachments": "not-a-list"},
+        {"backend_uuid": "backend-id", "attachments": [123]},
+    ],
+)
+def test_sync_client_rejects_invalid_follow_up(follow_up: Any) -> None:
+    client = SyncClient.__new__(SyncClient)
+    client.session = RecordingSyncSession()
+    client.own = True
+    client.copilot = float("inf")
+    client.file_upload = float("inf")
+    client._user_info = {}
+
+    with pytest.raises(ValueError, match="follow_up"):
+        client.search("invalid follow-up", mode="pro", follow_up=follow_up)
+
+
+def test_sync_client_accumulates_new_and_prior_follow_up_attachments(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class DummyMime:
+        def addpart(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+    monkeypatch.setattr("perplexity.client.CurlMime", DummyMime)
+    session = UploadRecordingSession()
+    client = SyncClient.__new__(SyncClient)
+    client.session = session
+    client.own = True
+    client.copilot = float("inf")
+    client.file_upload = float("inf")
+    client._user_info = {}
+
+    result = client.search(
+        "continue with a new file",
+        mode="pro",
+        files={"new.txt": b"new file"},
+        follow_up={
+            "backend_uuid": "backend-0",
+            "attachments": ["https://cdn.example/prior.txt"],
+        },
+    )
+
+    ask_request = next(
+        request for request in session.requests if request["url"] == ENDPOINT_SSE_ASK
+    )
+    assert ask_request["json"]["params"]["attachments"] == [
+        "https://cdn.example/new.txt",
+        "https://cdn.example/prior.txt",
+    ]
+    assert result["_follow_up"] == {
+        "backend_uuid": "backend-1",
+        "attachments": [
+            "https://cdn.example/new.txt",
+            "https://cdn.example/prior.txt",
+        ],
+    }
 
 
 def test_sync_client_uses_current_browser_ask_headers() -> None:

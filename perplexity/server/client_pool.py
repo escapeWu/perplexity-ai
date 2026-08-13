@@ -502,6 +502,28 @@ class ClientPool:
             soonest_wrapper = min(eligible_wrappers, key=lambda w: w.available_after)
             return soonest_wrapper.id, None
 
+    def get_client_by_id(
+        self,
+        client_id: str,
+        required_tier: Optional[str] = None,
+    ) -> Tuple[Optional[str], Optional[Client]]:
+        """Return one exact healthy client without changing pool rotation state.
+
+        A configured but disabled, cooling-down, or tier-incompatible client is
+        represented as ``(client_id, None)``. A missing id returns ``(None, None)``.
+        This distinction lets session routing report an unavailable immutable
+        binding without silently selecting another account.
+        """
+        with self._lock:
+            wrapper = self.clients.get(client_id)
+            if wrapper is None:
+                return None, None
+            if not wrapper.is_available() or not account_supports_tier(
+                wrapper.subscription_tier, required_tier
+            ):
+                return client_id, None
+            return client_id, wrapper.client
+
     def get_model_subscription_tiers(self) -> set[str]:
         """Return model tiers supported by enabled configured accounts."""
         tiers: set[str] = set()

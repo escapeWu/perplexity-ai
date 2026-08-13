@@ -182,6 +182,7 @@ def _iter_client_stream(
     incognito: bool,
     timeout: float,
     file_upload_timeout: float,
+    follow_up: Optional[Dict[str, Any]] = None,
 ) -> Iterator[Dict[str, Any]]:
     """Run one upstream streaming request and always close its iterator."""
     response_stream = client.search(
@@ -192,6 +193,7 @@ def _iter_client_stream(
         files=files,
         stream=True,
         language=language,
+        follow_up=follow_up,
         incognito=incognito,
         timeout=timeout,
         file_upload_timeout=file_upload_timeout,
@@ -224,6 +226,8 @@ def run_query_stream(
     incognito: bool = False,
     files: Optional[Union[Dict[str, Any], Iterable[str]]] = None,
     fallback_to_auto: bool = True,
+    bound_client_id: Optional[str] = None,
+    follow_up: Optional[Dict[str, Any]] = None,
 ) -> Iterator[Dict[str, Any]]:
     """Stream raw Perplexity events with pool failover before the first event.
 
@@ -243,8 +247,12 @@ def run_query_stream(
         required_tier = get_model_registry().required_tier(mode, model)
     except ValueError as exc:
         raise ValidationError(str(exc)) from exc
+    is_bound = bound_client_id is not None
     should_fallback = (
-        fallback_to_auto and pool.is_fallback_to_auto_enabled() and required_tier != "max"
+        not is_bound
+        and fallback_to_auto
+        and pool.is_fallback_to_auto_enabled()
+        and required_tier != "max"
     )
     is_pro_mode = mode in ("pro", "reasoning", "deep research")
     if pool.is_incognito_enabled():
@@ -253,24 +261,34 @@ def run_query_stream(
     attempted_clients = set()
     skipped_downgraded_clients = []
     last_error: Optional[Exception] = None
-    total_clients = len(pool.clients)
+    total_clients = 1 if is_bound else len(pool.clients)
 
     for _ in range(total_clients):
         excluded_ids = attempted_clients | {
             client_id for client_id, _, _ in skipped_downgraded_clients
         }
-        client_id, client = pool.get_client(
-            exclude_ids=excluded_ids,
-            required_tier=required_tier,
-        )
+        if is_bound:
+            client_id, client = pool.get_client_by_id(
+                bound_client_id,
+                required_tier=required_tier,
+            )
+        else:
+            client_id, client = pool.get_client(
+                exclude_ids=excluded_ids,
+                required_tier=required_tier,
+            )
         if client is None or client_id is None:
             if not attempted_clients:
-                earliest = pool.get_earliest_available_time()
-                if required_tier == "max":
+                if is_bound:
+                    last_error = RuntimeError(
+                        f"Bound account '{bound_client_id}' is unavailable for this session."
+                    )
+                elif required_tier == "max":
                     last_error = RuntimeError(
                         "No available Max account can run the requested model."
                     )
                 else:
+                    earliest = pool.get_earliest_available_time()
                     last_error = RuntimeError(
                         "All compatible clients are currently unavailable. "
                         f"Earliest available at: {earliest}"
@@ -280,6 +298,9 @@ def run_query_stream(
         client_state = pool.get_client_state(client_id)
         client_weight = pool.get_client_weight(client_id)
         if is_pro_mode and client_state == "downgrade":
+            if is_bound:
+                last_error = RuntimeError(f"Bound account '{client_id}' cannot run Pro searches.")
+                break
             skipped_downgraded_clients.append((client_id, client, client_weight))
             continue
 
@@ -305,6 +326,7 @@ def run_query_stream(
                 incognito,
                 pool.get_search_timeout(mode),
                 pool.get_file_upload_timeout(),
+                follow_up,
             ):
                 yielded_event = True
                 yield chunk
@@ -402,6 +424,9 @@ def run_query(
     incognito: bool = False,
     files: Optional[Union[Dict[str, Any], Iterable[str]]] = None,
     fallback_to_auto: bool = True,
+    bound_client_id: Optional[str] = None,
+    follow_up: Optional[Dict[str, Any]] = None,
+    include_internal_metadata: bool = False,
 ) -> Dict[str, Any]:
     """
     Execute a Perplexity query with client pool rotation and optional fallback.
@@ -447,8 +472,12 @@ def run_query(
         }
 
     # --- 2. Check if fallback to auto is enabled ---
+    is_bound = bound_client_id is not None
     should_fallback = (
-        fallback_to_auto and pool.is_fallback_to_auto_enabled() and required_tier != "max"
+        not is_bound
+        and fallback_to_auto
+        and pool.is_fallback_to_auto_enabled()
+        and required_tier != "max"
     )
     is_pro_mode = mode in ("pro", "reasoning", "deep research")
 
@@ -465,25 +494,35 @@ def run_query(
     attempted_clients = set()
     skipped_downgraded_clients = []
     last_error = None
-    total_clients = len(pool.clients)
+    total_clients = 1 if is_bound else len(pool.clients)
 
     # Try up to total_clients times to ensure we attempt all available clients
     for _ in range(total_clients):
         excluded_ids = attempted_clients | {
             client_id for client_id, _, _ in skipped_downgraded_clients
         }
-        client_id, client = pool.get_client(
-            exclude_ids=excluded_ids,
-            required_tier=required_tier,
-        )
+        if is_bound:
+            client_id, client = pool.get_client_by_id(
+                bound_client_id,
+                required_tier=required_tier,
+            )
+        else:
+            client_id, client = pool.get_client(
+                exclude_ids=excluded_ids,
+                required_tier=required_tier,
+            )
 
         if client is None or client_id is None:
             # All clients are in backoff or none exist
             if not attempted_clients:
-                earliest = pool.get_earliest_available_time()
-                if required_tier == "max":
+                if is_bound:
+                    last_error = RuntimeError(
+                        f"Bound account '{bound_client_id}' is unavailable for this session."
+                    )
+                elif required_tier == "max":
                     last_error = Exception("No available Max account can run the requested model.")
                 else:
+                    earliest = pool.get_earliest_available_time()
                     last_error = Exception(
                         "All compatible clients are currently unavailable. "
                         f"Earliest available at: {earliest}"
@@ -505,6 +544,9 @@ def run_query(
 
         # For Pro mode: skip downgraded clients first, try Pro clients
         if is_pro_mode and client_state == "downgrade":
+            if is_bound:
+                last_error = RuntimeError(f"Bound account '{client_id}' cannot run Pro searches.")
+                break
             logger.debug(
                 f"[{client_id}] Client is DOWNGRADED, skipping for Pro mode (will retry with fallback if enabled)"
             )
@@ -535,6 +577,7 @@ def run_query(
                 files=normalized_files,
                 stream=False,
                 language=language,
+                follow_up=follow_up,
                 incognito=incognito,
                 timeout=pool.get_search_timeout(mode),
                 file_upload_timeout=pool.get_file_upload_timeout(),
@@ -543,6 +586,8 @@ def run_query(
             # Success
             pool.mark_client_success(client_id)
             clean_result = extract_clean_result(response)
+            if include_internal_metadata and isinstance(response.get("_follow_up"), dict):
+                clean_result["_follow_up"] = response["_follow_up"]
             logger.debug(f"[{client_id}] Query succeeded with Pro mode")
             return {"status": "ok", "data": clean_result}
 

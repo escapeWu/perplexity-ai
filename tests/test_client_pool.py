@@ -408,6 +408,33 @@ class TestClientPool:
 
     @patch("pathlib.Path.exists", return_value=False)
     @patch("perplexity.server.client_pool.Client")
+    def test_get_client_by_id_never_rotates_or_substitutes(
+        self, mock_client_class, mock_path_exists
+    ):
+        """Session affinity resolves only the requested account."""
+        from perplexity.server.client_pool import ClientPool
+
+        with patch.dict(os.environ, {}, clear=True):
+            pool = ClientPool()
+        pool.add_client("user1", "csrf1", "session1")
+
+        scheduler_before = {
+            client_id: wrapper.scheduler_current for client_id, wrapper in pool.clients.items()
+        }
+        client_id, client = pool.get_client_by_id("user1")
+
+        assert client_id == "user1"
+        assert client is pool.clients["user1"].client
+        assert {
+            current_id: wrapper.scheduler_current for current_id, wrapper in pool.clients.items()
+        } == scheduler_before
+
+        pool.clients["user1"].available_after = time.time() + 60
+        assert pool.get_client_by_id("user1") == ("user1", None)
+        assert pool.get_client_by_id("missing") == (None, None)
+
+    @patch("pathlib.Path.exists", return_value=False)
+    @patch("perplexity.server.client_pool.Client")
     def test_mark_client_success(self, mock_client_class, mock_path_exists):
         """Test marking a client as successful."""
         from perplexity.server.client_pool import ClientPool

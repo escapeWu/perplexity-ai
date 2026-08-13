@@ -10,7 +10,10 @@ from ..logger import setup_logger
 
 setup_logger()
 
-from .app import mcp, get_pool
+from . import admin  # noqa: F401
+from . import oai  # noqa: F401
+from . import webui  # noqa: F401
+from .app import get_pool, mcp
 
 # Import route modules to register tools and endpoints with the mcp instance
 # Must import the actual decorated functions to trigger registration
@@ -23,8 +26,6 @@ from .mcp import (  # noqa: F401
     research,
     search,
 )
-from . import oai  # noqa: F401
-from . import admin  # noqa: F401
 
 
 def run_server(

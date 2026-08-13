@@ -1,14 +1,38 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { chatCompletion, chatCompletionStream } from 'lib/api'
-import type { ChatCompletionChunk, PerplexityProgress } from 'lib/api'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  createWebUISession,
+  getWebUISession,
+  listWebUISessions,
+  webuiChatCompletion,
+  webuiChatCompletionStream
+} from 'lib/api'
+import type {
+  ChatCompletionChunk,
+  ChatSession,
+  PerplexityProgress
+} from 'lib/api'
 import { useChat } from './useChat'
 
 vi.mock('lib/api', () => ({
   fetchOAIModels: vi.fn(),
-  chatCompletion: vi.fn(),
-  chatCompletionStream: vi.fn(),
+  createWebUISession: vi.fn(),
+  listWebUISessions: vi.fn(),
+  getWebUISession: vi.fn(),
+  renameWebUISession: vi.fn(),
+  deleteWebUISession: vi.fn(),
+  webuiChatCompletion: vi.fn(),
+  webuiChatCompletionStream: vi.fn()
 }))
+
+const session: ChatSession = {
+  id: 'sess_00000000000000000000000000000001',
+  title: 'New chat',
+  bound_client_id: null,
+  model: null,
+  created_at: 1,
+  updated_at: 1
+}
 
 function streamChunk(
   content?: string,
@@ -23,14 +47,23 @@ function streamChunk(
       {
         index: 0,
         delta: content ? { content } : {},
-        finish_reason: null,
-      },
+        finish_reason: null
+      }
     ],
-    ...(progress ? { perplexity_progress: progress } : {}),
+    ...(progress ? { perplexity_progress: progress } : {})
   }
 }
 
 describe('useChat cancellation', () => {
+  beforeEach(() => {
+    vi.mocked(createWebUISession).mockResolvedValue(session)
+    vi.mocked(listWebUISessions).mockResolvedValue({
+      object: 'list',
+      data: [session]
+    })
+    vi.mocked(getWebUISession).mockResolvedValue({ ...session, messages: [] })
+  })
+
   afterEach(() => {
     localStorage.clear()
     vi.clearAllMocks()
@@ -38,24 +71,29 @@ describe('useChat cancellation', () => {
 
   it('passes an abort signal to the stream and stops without showing an error', async () => {
     let requestSignal: AbortSignal | undefined
-    vi.mocked(chatCompletionStream).mockImplementation((_request, _apiToken, signal) => {
-      requestSignal = signal
-      return (async function* () {
-        yield streamChunk(undefined, {
-          id: 'progress-1',
-          stage: 'search_web',
-          status: 'running',
-          label: 'Searching the web',
-        })
-        await new Promise<void>((_resolve, reject) => {
-          signal?.addEventListener(
-            'abort',
-            () => reject(new DOMException('The operation was aborted', 'AbortError')),
-            { once: true }
-          )
-        })
-      })()
-    })
+    vi.mocked(webuiChatCompletionStream).mockImplementation(
+      (_request, _apiToken, signal) => {
+        requestSignal = signal
+        return (async function* () {
+          yield streamChunk(undefined, {
+            id: 'progress-1',
+            stage: 'search_web',
+            status: 'running',
+            label: 'Searching the web'
+          })
+          await new Promise<void>((_resolve, reject) => {
+            signal?.addEventListener(
+              'abort',
+              () =>
+                reject(
+                  new DOMException('The operation was aborted', 'AbortError')
+                ),
+              { once: true }
+            )
+          })
+        })()
+      }
+    )
 
     const { result } = renderHook(() => useChat())
     act(() => result.current.saveApiToken('test-token'))
@@ -65,9 +103,13 @@ describe('useChat cancellation', () => {
       sendPromise = result.current.sendMessage('hello')
     })
 
-    await waitFor(() => expect(chatCompletionStream).toHaveBeenCalledOnce())
     await waitFor(() =>
-      expect(result.current.messages.at(-1)?.progress?.[0].status).toBe('running')
+      expect(webuiChatCompletionStream).toHaveBeenCalledOnce()
+    )
+    await waitFor(() =>
+      expect(result.current.messages.at(-1)?.progress?.[0].status).toBe(
+        'running'
+      )
     )
     act(() => result.current.stopStreaming())
     await act(async () => {
@@ -78,7 +120,9 @@ describe('useChat cancellation', () => {
     expect(result.current.isLoading).toBe(false)
     expect(result.current.isStreaming).toBe(false)
     expect(result.current.error).toBeNull()
-    expect(result.current.messages.at(-1)?.progress?.[0].status).toBe('cancelled')
+    expect(result.current.messages.at(-1)?.progress?.[0].status).toBe(
+      'cancelled'
+    )
     expect(
       result.current.messages.some(
         (message) =>
@@ -90,34 +134,34 @@ describe('useChat cancellation', () => {
   })
 
   it('stores progress updates alongside streamed answer content', async () => {
-    vi.mocked(chatCompletionStream).mockImplementation(() =>
+    vi.mocked(webuiChatCompletionStream).mockImplementation(() =>
       (async function* () {
         yield streamChunk(undefined, {
           id: 'progress-1',
           stage: 'search_web',
           status: 'running',
           label: 'Searching the web',
-          detail: { queries: ['glass frog transparency'], query_count: 1 },
+          detail: { queries: ['glass frog transparency'], query_count: 1 }
         })
         yield streamChunk(undefined, {
           id: 'progress-1',
           stage: 'search_web',
           status: 'completed',
           label: 'Searching the web',
-          detail: { queries: ['glass frog transparency'], query_count: 1 },
+          detail: { queries: ['glass frog transparency'], query_count: 1 }
         })
         yield streamChunk(undefined, {
           id: 'progress-2',
           stage: 'final',
           status: 'running',
-          label: 'Writing answer',
+          label: 'Writing answer'
         })
         yield streamChunk('complete answer')
         yield streamChunk(undefined, {
           id: 'progress-2',
           stage: 'final',
           status: 'completed',
-          label: 'Writing answer',
+          label: 'Writing answer'
         })
       })()
     )
@@ -136,25 +180,25 @@ describe('useChat cancellation', () => {
         stage: 'search_web',
         status: 'completed',
         label: 'Searching the web',
-        detail: { queries: ['glass frog transparency'], query_count: 1 },
+        detail: { queries: ['glass frog transparency'], query_count: 1 }
       },
       {
         id: 'progress-2',
         stage: 'final',
         status: 'completed',
-        label: 'Writing answer',
-      },
+        label: 'Writing answer'
+      }
     ])
   })
 
   it('keeps partial content and marks active progress failed on stream errors', async () => {
-    vi.mocked(chatCompletionStream).mockImplementation(() =>
+    vi.mocked(webuiChatCompletionStream).mockImplementation(() =>
       (async function* () {
         yield streamChunk(undefined, {
           id: 'progress-1',
           stage: 'search_web',
           status: 'running',
-          label: 'Searching the web',
+          label: 'Searching the web'
         })
         yield streamChunk('partial answer')
         throw new Error('upstream interrupted')
@@ -175,7 +219,7 @@ describe('useChat cancellation', () => {
   })
 
   it('uses the complete response API when streaming is disabled', async () => {
-    vi.mocked(chatCompletion).mockResolvedValue({
+    vi.mocked(webuiChatCompletion).mockResolvedValue({
       id: 'chatcmpl-test',
       object: 'chat.completion',
       created: 1,
@@ -184,9 +228,9 @@ describe('useChat cancellation', () => {
         {
           index: 0,
           message: { role: 'assistant', content: 'complete answer' },
-          finish_reason: 'stop',
-        },
-      ],
+          finish_reason: 'stop'
+        }
+      ]
     })
 
     const { result } = renderHook(() => useChat())
@@ -196,8 +240,92 @@ describe('useChat cancellation', () => {
       await result.current.sendMessage('hello')
     })
 
-    expect(chatCompletion).toHaveBeenCalledOnce()
-    expect(chatCompletionStream).not.toHaveBeenCalled()
+    expect(webuiChatCompletion).toHaveBeenCalledOnce()
+    expect(webuiChatCompletionStream).not.toHaveBeenCalled()
     expect(result.current.messages.at(-1)?.content).toBe('complete answer')
+  })
+
+  it('sends only the current turn with the active session id', async () => {
+    vi.mocked(webuiChatCompletion).mockResolvedValue({
+      id: 'chatcmpl-test',
+      object: 'chat.completion',
+      created: 1,
+      model: 'perplexity-search',
+      choices: [
+        {
+          index: 0,
+          message: { role: 'assistant', content: 'answer' },
+          finish_reason: 'stop'
+        }
+      ]
+    })
+
+    const { result } = renderHook(() => useChat())
+    act(() => result.current.saveApiToken('test-token'))
+    act(() => result.current.setStreamEnabled(false))
+    await act(async () => result.current.sendMessage('first'))
+    await act(async () => result.current.sendMessage('second'))
+
+    const secondRequest = vi.mocked(webuiChatCompletion).mock.calls[1][0]
+    expect(secondRequest.session_id).toBe(session.id)
+    expect(secondRequest.messages).toEqual([
+      { role: 'user', content: 'second' }
+    ])
+  })
+
+  it('restores the remembered session and keeps histories isolated when switching', async () => {
+    const other: ChatSession = {
+      ...session,
+      id: 'sess_00000000000000000000000000000002',
+      title: 'Other chat',
+      updated_at: 2
+    }
+    localStorage.setItem('webui_active_session_id', other.id)
+    vi.mocked(listWebUISessions).mockResolvedValue({
+      object: 'list',
+      data: [other, session]
+    })
+    vi.mocked(getWebUISession).mockImplementation(async (sessionId) => ({
+      ...(sessionId === other.id ? other : session),
+      messages: [
+        {
+          role: 'assistant',
+          content: sessionId === other.id ? 'other history' : 'first history'
+        }
+      ]
+    }))
+
+    const { result } = renderHook(() => useChat())
+    act(() => result.current.saveApiToken('test-token'))
+    localStorage.setItem('webui_active_session_id', other.id)
+    await act(async () => result.current.loadSessions())
+
+    expect(result.current.activeSessionId).toBe(other.id)
+    expect(result.current.messages[0].content).toBe('other history')
+
+    await act(async () => result.current.selectSession(session.id))
+    expect(result.current.activeSessionId).toBe(session.id)
+    expect(result.current.messages[0].content).toBe('first history')
+  })
+
+  it('updates the sidebar with the account returned by a committed stream', async () => {
+    const committed = {
+      ...session,
+      title: 'hello',
+      bound_client_id: 'account-a',
+      updated_at: 3
+    }
+    vi.mocked(webuiChatCompletionStream).mockImplementation(() =>
+      (async function* () {
+        yield { ...streamChunk('answer'), webui_session: committed }
+      })()
+    )
+
+    const { result } = renderHook(() => useChat())
+    act(() => result.current.saveApiToken('test-token'))
+    await act(async () => result.current.sendMessage('hello'))
+
+    expect(result.current.activeSession?.bound_client_id).toBe('account-a')
+    expect(result.current.activeSession?.title).toBe('hello')
   })
 })

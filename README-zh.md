@@ -172,6 +172,7 @@ services:
       - MCP_TOKEN=${MCP_TOKEN:-sk-123456}
       # 管理员 Token（用于号池管理 API，可选）
       - PPLX_ADMIN_TOKEN=${PPLX_ADMIN_TOKEN:-}
+      # - PPLX_WEBUI_SESSION_DB=/app/data/webui_sessions.sqlite3
       # SOCKS 代理配置 (可选)
       # 格式: socks5://[user[:pass]@]host[:port][#remark]
       # - SOCKS_PROXY=${SOCKS_PROXY:-}
@@ -201,6 +202,9 @@ MCP_TOKEN=sk-123456
 # 管理员 Token（用于号池管理 API：新增/删除 token 等操作）
 PPLX_ADMIN_TOKEN=your-admin-token
 
+# WebUI 会话数据库（可选）
+# PPLX_WEBUI_SESSION_DB=./data/webui_sessions.sqlite3
+
 # 非 Docker 部署时可选
 # PPLX_MODELS_CONFIG_URL=https://raw.githubusercontent.com/escapeWu/perplexity-ai/main/catalog/model_config_v2.json
 # PPLX_MODEL_CACHE_PATH=./data/model_config_v2.json
@@ -210,6 +214,26 @@ PPLX_ADMIN_TOKEN=your-admin-token
 ## 多 Token 池配置（负载均衡）
 
 支持配置多个 Perplexity 账户 token，实现负载均衡和高可用。具体配置请参考上文 "准备配置文件" 部分。
+
+## Playground 多轮会话
+
+内置的 `/playground/` 已支持服务端持久化会话。侧边栏可以新建、恢复、
+重命名和删除会话；每一轮只发送当前用户消息，并通过 Perplexity 原生
+follow-up 游标延续线程，不再把完整可见历史拼成一个 query。
+
+会话第一次发送时，服务端会选择一个健康且兼容当前模型的账号，并将该账号
+永久绑定到会话。已绑定会话不会轮换到其他账号，也不会降级或回退到其他配置
+账号/匿名账号。如果绑定账号被禁用、处于冷却、已删除或不再兼容，请求会明确
+失败；需要换号时必须新建会话。第一次请求即使失败，账号绑定也会保留。
+
+已完成的对话轮次、账号绑定和原生游标默认保存在
+`./data/webui_sessions.sqlite3`。可通过 `PPLX_WEBUI_SESSION_DB` 修改位置；
+Docker 部署建议将数据库放在已挂载的 `/app/data` 内。被取消或中断的流式回答
+不会落库。
+
+首个版本只对内置 WebUI 生效，`/v1/chat/completions` 与 MCP 工具仍保持原有
+无状态行为。目前只支持单服务进程；所有使用同一个 `MCP_TOKEN` 的浏览器会
+看到同一份会话列表，暂不提供按用户隔离或多副本分布式锁。
 
 ## MCP 配置
 
@@ -343,6 +367,8 @@ perplexity/
 │   ├── app.py               # FastMCP 应用实例、认证中间件、核心查询逻辑
 │   ├── mcp.py               # MCP 工具定义和 Agent 友好别名
 │   ├── oai.py               # OpenAI 兼容 API (/v1/models, /v1/chat/completions)
+│   ├── webui.py             # WebUI 专用会话与聊天路由
+│   ├── webui_sessions.py    # SQLite 会话、消息与账号绑定
 │   ├── admin.py             # 管理端点 (健康检查、号池管理、心跳控制)
 │   ├── utils.py             # 服务器专用工具函数 (验证、OAI模型映射)
 │   ├── client_pool.py       # 多账户连接池管理

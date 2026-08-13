@@ -79,11 +79,11 @@ export function CustomSelect({
   }
 
   return (
-    <div className="relative mb-[1px]" ref={containerRef}>
+    <div className="relative mb-px" ref={containerRef}>
       <button
         onClick={() => !disabled && setIsOpen(!isOpen)}
         disabled={disabled}
-        className="flex items-center justify-between bg-concrete text-gray-300 font-mono text-xs border-2 border-gray-600 hover:border-acid hover:text-acid px-3 py-2 h-[42px] w-[180px] focus:outline-none transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        className="flex h-[42px] w-[140px] items-center justify-between border-2 border-gray-600 bg-concrete px-3 py-2 font-mono text-xs text-gray-300 transition-colors hover:border-acid hover:text-acid focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 sm:w-[180px]"
       >
         <span className="truncate">{selected?.label || selectedModel}</span>
         <svg
@@ -92,7 +92,7 @@ export function CustomSelect({
           viewBox="0 0 24 24"
           strokeWidth={2}
           stroke="currentColor"
-          className={`w-4 h-4 ml-2 transition-transform duration-200 ${
+          className={`ml-2 size-4 transition-transform duration-200 ${
             isOpen ? 'rotate-180' : 'rotate-0'
           }`}
         >
@@ -105,13 +105,13 @@ export function CustomSelect({
       </button>
 
       {isOpen && (
-        <div className="absolute bottom-full left-0 mb-2 w-[300px] max-h-[360px] overflow-y-auto bg-black border-2 border-gray-600 shadow-hard z-50 animate-in fade-in zoom-in-95 duration-100 origin-bottom-left">
+        <div className="animate-in fade-in zoom-in-95 absolute -left-14 bottom-full z-50 mb-2 max-h-[360px] w-[min(300px,calc(100vw-2rem))] origin-bottom-left overflow-y-auto border-2 border-gray-600 bg-black shadow-hard duration-100 sm:left-0">
           {Object.entries(groups).map(([key, groupModels]) => {
             if (groupModels.length === 0) return null
             return (
               <div key={key}>
                 <div
-                  className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider bg-gray-900 border-b border-gray-800 ${groupColors[key]}`}
+                  className={`border-b border-gray-800 bg-gray-900 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider ${groupColors[key]}`}
                 >
                   {groupLabels[key]}
                 </div>
@@ -123,9 +123,9 @@ export function CustomSelect({
                       setIsOpen(false)
                     }}
                     title={m.description}
-                    className={`group w-full text-left px-3 py-2 text-xs font-mono hover:bg-white hover:text-black transition-colors ${
+                    className={`group w-full px-3 py-2 text-left font-mono text-xs transition-colors hover:bg-white hover:text-black ${
                       selectedModel === m.id
-                        ? 'text-white bg-gray-800'
+                        ? 'bg-gray-800 text-white'
                         : 'text-gray-400'
                     }`}
                   >
