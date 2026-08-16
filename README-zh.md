@@ -73,6 +73,7 @@
 <img width="1894" height="989" alt="image" src="https://github.com/user-attachments/assets/4a495432-8305-4820-8b4a-d7e54986ba45" />
 
 ## 最新动态（What's New）
++ **2026-08-16**：v1.15.0 — 新增与 OpenAI 格式对齐的 v2 MCP ask/research 工具及 REST 会话续聊，实现会话与账号绑定；更新动态模型目录、标记旧 MCP 工具即将废弃，并让 Playground 模型与 Thinking 控件对齐 Perplexity WebUI。
 + **2026-08-13**：v1.14.0 — Playground 新增服务端持久化会话、响应式会话侧边栏和 Perplexity 原生 follow-up；每个会话首次发送后永久绑定一个账号，禁止跨账号故障转移。
 + **2026-08-12**：v1.13.3 — 升级 curl-cffi 浏览器指纹，避免 Grok 4.5 和 Claude Sonnet 5 请求被静默回退到 Best/turbo；当上游再次降级时，保留请求模型与实际模型元数据并输出服务端告警。
 + **2026-07-31**：v1.13.2 — 对齐 Perplexity 当前浏览器请求协议，避免所有显式选择的模型被静默降级，并发布经过校验的 Pro/Max 模型快照供服务端每日从 GitHub Raw 更新。

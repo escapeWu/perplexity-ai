@@ -349,6 +349,7 @@ Static built-in mappings are used only when no valid cache exists.
 </a>
 
 ## What's New
++ **2026-08-16**: v1.15.0 — Add OpenAI-aligned v2 MCP ask/research tools and REST session continuation with account-bound conversations, refresh the dynamic model catalog, deprecate legacy MCP tools, and align the Playground model and Thinking controls with Perplexity WebUI.
 + **2026-08-13**: v1.14.0 — Add server-backed Playground conversations with a responsive session sidebar, native Perplexity follow-up threads, persistent history, and immutable per-conversation account binding without cross-account failover.
 + **2026-08-12**: v1.13.3 — Upgrade curl-cffi browser fingerprints to stop Grok 4.5 and Claude Sonnet 5 requests from silently falling back to Best/turbo, and expose requested-versus-effective model metadata with a server warning when upstream downgrades recur.
 + **2026-07-31**: v1.13.2 — Prevent all explicitly selected models from being silently downgraded by matching Perplexity's current browser request protocol, and publish a validated Pro/Max model snapshot that servers refresh daily from GitHub Raw.
