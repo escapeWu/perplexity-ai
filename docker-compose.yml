@@ -11,6 +11,10 @@ services:
       - MCP_TOKEN=${MCP_TOKEN:-sk-123456}
       # 管理员 Token（用于号池管理 API）
       - PPLX_ADMIN_TOKEN=${PPLX_ADMIN_TOKEN:-}
+      # WebUI、OAI 与 v2 MCP 共用的会话数据库
+      - PPLX_SESSION_DB=${PPLX_SESSION_DB:-}
+      # 旧名称兼容；未配置时默认写入 /app/data/webui_sessions.sqlite3
+      - PPLX_WEBUI_SESSION_DB=${PPLX_WEBUI_SESSION_DB:-}
       # SOCKS 代理配置 (可选)
       # 格式: socks5://[user[:pass]@]host[:port][#remark]
       # 示例: socks5://127.0.0.1:1080 或 socks5://user:pass@proxy.example.com:1080

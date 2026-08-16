@@ -5,6 +5,59 @@
 
 非官方的 Perplexity.ai 服务端，通过 MCP (Model Context Protocol) 和 OpenAI 兼容端点暴露搜索能力。支持多 Token 池负载均衡、健康监测和多种搜索模式。
 
+## AGENT READ — 部署速查
+
+> 在指导或执行部署前先阅读本节。用户只要求文档、说明或审查时，不代表授权实际部署；
+> 只有用户明确要求部署、更新、重建、重启或发布服务时，才能修改服务器状态。
+
+### 先判断请求类型
+
+| 用户意图 | Agent 动作 |
+|---|---|
+| 说明或准备本地安装 | 使用下方“快速开始”，不要修改远程系统。 |
+| 部署项目已配置的生产服务器 | 严格遵循 [`.agents/skills/server-deploy/SKILL.md`](.agents/skills/server-deploy/SKILL.md)。 |
+| 核验或诊断已有部署 | 先执行 `config`、`verify`、`status` 和 `logs`，取得证据后再决定是否变更。 |
+
+把 [`docker-compose.yml`](docker-compose.yml)、[`.env.example`](.env.example) 和
+[`deploy/compose.sh`](deploy/compose.sh) 视为部署事实来源。生产入口从服务器检出的源码
+构建应用镜像；不要等待或改用 Docker Hub 的 `latest` 应用镜像。
+
+### 首次安装前置条件
+
+- 要求服务器已安装 Docker 和 Compose 插件。
+- 仅在目标文件不存在时，才从示例创建 `.env` 和 `token_pool_config.json`；使用
+  `openssl rand -hex 32` 等方式生成高强度 `MCP_TOKEN`。
+- 不要把 `.env`、`token_pool_config.json`、`data/`、CSRF/session token 或管理员 token
+  提交到 Git 或打印到命令输出；更新时绝不能覆盖服务器现有文件。
+- 保留已挂载的 `data/`，确保模型缓存以及 WebUI/OAI/MCP 会话数据库在替换容器后仍存在。
+- 面向公网时绑定回环地址，并在服务前配置 TLS/反向代理；端口写法参见
+  [`.env.example`](.env.example)。
+
+在仓库检出目录中运行受保护的部署入口：
+
+```bash
+./deploy/compose.sh config
+./deploy/compose.sh up
+./deploy/compose.sh verify
+./deploy/compose.sh status
+```
+
+`up` 会校验 `.env` 和非空 Token 池，从当前源码构建应用镜像，替换服务，等待容器健康，
+调用 `/health`，并输出最终状态。
+
+### 生产发布契约
+
+1. 在本地 `main` 审查目标 diff，只提交用户要求的文件，并推送该精确 commit。
+2. 修改服务器前确认本地 `HEAD` 与 `origin/main` 完全一致。
+3. 要求远端 tracked worktree 干净；只允许 fast-forward 拉取，并确认远端 SHA 等于记录的
+   本地 commit。
+4. 执行 `./deploy/compose.sh up`，随后执行 `verify` 和 `status`。
+5. 报告已部署 commit、镜像 ID、`/health` 结果和最终容器状态。
+
+遇到远端工作区不干净、SHA 不一致、构建失败、健康检查失败或状态异常时立即停止。
+日常部署中禁止强推、`git reset`/`git clean`、`docker compose down`、删除镜像或卷，
+也禁止替换服务器密钥和持久化数据。
+
 ## 展示
 **ADMIN 管理面板**
 <img width="2628" height="2052" alt="image" src="https://github.com/user-attachments/assets/997f0ae0-9f76-4d53-ba28-625068b508d1" />
@@ -159,7 +212,7 @@ services:
       - MCP_TOKEN=${MCP_TOKEN:-sk-123456}
       # 管理员 Token（用于号池管理 API，可选）
       - PPLX_ADMIN_TOKEN=${PPLX_ADMIN_TOKEN:-}
-      # - PPLX_WEBUI_SESSION_DB=/app/data/webui_sessions.sqlite3
+      # - PPLX_SESSION_DB=/app/data/webui_sessions.sqlite3
       # SOCKS 代理配置 (可选)
       # 格式: socks5://[user[:pass]@]host[:port][#remark]
       # - SOCKS_PROXY=${SOCKS_PROXY:-}
@@ -189,8 +242,8 @@ MCP_TOKEN=sk-123456
 # 管理员 Token（用于号池管理 API：新增/删除 token 等操作）
 PPLX_ADMIN_TOKEN=your-admin-token
 
-# WebUI 会话数据库（可选）
-# PPLX_WEBUI_SESSION_DB=./data/webui_sessions.sqlite3
+# 共用会话数据库（可选）
+# PPLX_SESSION_DB=./data/webui_sessions.sqlite3
 
 # 非 Docker 部署时可选
 # PPLX_MODELS_CONFIG_URL=https://raw.githubusercontent.com/escapeWu/perplexity-ai/main/catalog/model_config_v2.json
@@ -214,13 +267,13 @@ follow-up 游标延续线程，不再把完整可见历史拼成一个 query。
 失败；需要换号时必须新建会话。第一次请求即使失败，账号绑定也会保留。
 
 已完成的对话轮次、账号绑定和原生游标默认保存在
-`./data/webui_sessions.sqlite3`。可通过 `PPLX_WEBUI_SESSION_DB` 修改位置；
-Docker 部署建议将数据库放在已挂载的 `/app/data` 内。被取消或中断的流式回答
-不会落库。
+`./data/webui_sessions.sqlite3`。可通过 `PPLX_SESSION_DB` 修改位置，旧变量
+`PPLX_WEBUI_SESSION_DB` 仍作为兼容别名；Docker 部署建议将数据库放在已挂载的
+`/app/data` 内。被取消或中断的流式回答不会落库。
 
-首个版本只对内置 WebUI 生效，`/v1/chat/completions` 与 MCP 工具仍保持原有
-无状态行为。目前只支持单服务进程；所有使用同一个 `MCP_TOKEN` 的浏览器会
-看到同一份会话列表，暂不提供按用户隔离或多副本分布式锁。
+WebUI、`/v1/chat/completions` 和 v2 MCP 工具现在共用同一个原生会话运行层。
+API/MCP 创建的会话使用同一 SQLite 数据库和账号绑定规则，但不会出现在 WebUI
+侧边栏。目前只支持单服务进程，暂不提供按用户隔离或多副本会话锁。
 
 ## MCP 配置
 
@@ -242,13 +295,27 @@ Docker 部署建议将数据库放在已挂载的 `/app/data` 内。被取消或
 
 | 工具 | 适用场景 |
 |------|----------|
-| `perplexity_ask` | 普通快速问答，使用低成本 auto 模式 |
-| `perplexity_search` | 需要当前网页信息和来源链接的 Pro 搜索 |
-| `perplexity_reason` | 需要多步分析的推理问题 |
-| `perplexity_research` | 更慢但更全面的深度研究 |
-| `search` | 可配置 auto/pro、模型、来源、语言、文件和回退策略的搜索 |
-| `research` | 可配置 reasoning/deep research、模型、来源、语言、文件和回退策略的研究 |
-| `list_models` | 查看支持的模式和模型映射 |
+| `perplexity_ask_v2` | Ask/Search；支持 OAI 模型 ID、`thinking`、文件和 `session_id` |
+| `perplexity_research_v2` | Deep Research；支持文件和 `session_id` |
+
+`perplexity_ask_v2` 不传 `model` 时默认使用 `perplexity-search`。模型参数与
+`/v1/models` 返回的 OAI ID 完全一致，例如 `gpt-5-6-terra`；传入
+`thinking: true` 会选择对应的 Thinking 模型。两个 v2 工具不传
+`session_id` 时都会新建会话，并在结果顶层返回会话 ID：
+
+```json
+{
+  "status": "ok",
+  "session_id": "sess_...",
+  "model": "gpt-5-6-terra-thinking",
+  "data": {"answer": "...", "sources": []}
+}
+```
+
+旧工具 `list_models`、`search`、`research`、`perplexity_ask`、
+`perplexity_search`、`perplexity_reason`、`perplexity_research` 和
+`toggle_builtin_tools` 暂时保留兼容，但其 MCP 元数据和描述已标记为
+`deprecated` / `pending_removal`。
 
 ## OpenAI 兼容端点
 
@@ -263,6 +330,23 @@ Docker 部署建议将数据库放在已挂载的 `/app/data` 内。被取消或
 用于展示分析问题、搜索网页、整理来源和生成答案等阶段。其他 OpenAI 客户端
 可通过 `"perplexity": {"include_progress": true}` 主动启用；为保持兼容，
 API 默认不发送该扩展。
+
+每个通过校验的聊天补全请求都会获得一个原生会话。不传 `session_id` 表示新建
+会话，非流式 JSON 响应会在顶层返回 `session_id`；流式响应的每个 JSON SSE
+事件以及 `X-Session-ID` 响应头都会携带同一个值。续聊时只需传入该 ID 和当前
+用户消息：
+
+```json
+{
+  "model": "perplexity-search",
+  "session_id": "sess_...",
+  "messages": [{"role": "user", "content": "现在和东京比较一下"}],
+  "stream": false
+}
+```
+
+会话首轮会永久绑定一个兼容的 Perplexity 账号；后续轮次复用该账号及上游原生
+游标，绝不会跨账号故障转移。不存在的会话 ID 返回 HTTP 404。
 
 #### 获取模型列表
 
@@ -299,6 +383,11 @@ curl http://127.0.0.1:8000/v1/chat/completions \
 
 进度更新仍使用标准 `chat.completion.chunk` 事件，正文增量为空，并额外包含
 `perplexity_progress` 字段；不识别该扩展的客户端保持关闭即可。
+
+对于同时提供普通与推理版本的模型，可保持普通模型 ID 并传入
+`"thinking": true`，服务端会在调用 Perplexity 前解析为对应的
+`-thinking` 模型。`reasoning_effort` 不受 Perplexity Web 上游支持，会返回
+`invalid_request_error`。
 
 ### 支持的模型
 
@@ -355,7 +444,8 @@ perplexity/
 │   ├── mcp.py               # MCP 工具定义和 Agent 友好别名
 │   ├── oai.py               # OpenAI 兼容 API (/v1/models, /v1/chat/completions)
 │   ├── webui.py             # WebUI 专用会话与聊天路由
-│   ├── webui_sessions.py    # SQLite 会话、消息与账号绑定
+│   ├── session_runtime.py   # 共用原生 follow-up 与账号绑定运行层
+│   ├── webui_sessions.py    # 共用 SQLite 会话、消息与账号绑定
 │   ├── admin.py             # 管理端点 (健康检查、号池管理、心跳控制)
 │   ├── utils.py             # 服务器专用工具函数 (验证、OAI模型映射)
 │   ├── client_pool.py       # 多账户连接池管理

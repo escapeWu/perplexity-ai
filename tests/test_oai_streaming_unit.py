@@ -3,13 +3,21 @@
 import asyncio
 import json
 import threading
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from starlette.requests import Request
 from starlette.responses import JSONResponse, StreamingResponse
 
 from perplexity.server import oai
+from perplexity.server.webui_sessions import WebUISessionStore
+
+
+@pytest.fixture(autouse=True)
+def isolated_oai_sessions(tmp_path, monkeypatch):
+    store = WebUISessionStore(tmp_path / "oai-sessions.sqlite3")
+    monkeypatch.setattr(oai, "get_webui_session_store", lambda: store)
+    return store
 
 
 def make_request(payload):
@@ -35,6 +43,16 @@ def make_request(payload):
 def decode_sse(data):
     assert data.startswith("data: ")
     return json.loads(data[6:])
+
+
+def make_pool(client_id="account-a"):
+    pool = MagicMock()
+    pool.clients = {client_id: object()}
+    pool.get_client.return_value = (client_id, object())
+    pool.get_client_state.return_value = "normal"
+    pool.get_model_subscription_tiers.return_value = {"pro"}
+    pool.is_incognito_enabled.return_value = False
+    return pool
 
 
 @pytest.mark.asyncio
@@ -132,9 +150,7 @@ async def test_stream_progress_extension_emits_deduplicated_lifecycle_events():
 
     payloads = [decode_sse(frame) for frame in frames if frame != "data: [DONE]\n\n"]
     progress = [
-        payload["perplexity_progress"]
-        for payload in payloads
-        if "perplexity_progress" in payload
+        payload["perplexity_progress"] for payload in payloads if "perplexity_progress" in payload
     ]
 
     assert [(event["stage"], event["status"]) for event in progress] == [
@@ -219,9 +235,7 @@ async def test_stream_progress_marks_active_stage_failed_on_upstream_error():
 
     payloads = [decode_sse(frame) for frame in frames if frame != "data: [DONE]\n\n"]
     progress = [
-        payload["perplexity_progress"]
-        for payload in payloads
-        if "perplexity_progress" in payload
+        payload["perplexity_progress"] for payload in payloads if "perplexity_progress" in payload
     ]
     assert [(event["stage"], event["status"]) for event in progress] == [
         ("initial_query", "running"),
@@ -324,3 +338,188 @@ async def test_chat_completions_stream_false_returns_complete_json():
     assert response is complete_response
     non_stream_mock.assert_awaited_once()
     stream_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_thinking_flag_selects_reasoning_variant():
+    streamed_response = StreamingResponse(iter(["stream"]))
+    stream_mock = AsyncMock(return_value=streamed_response)
+
+    with patch("perplexity.server.oai._stream_chat_response", stream_mock):
+        response = await oai.oai_chat_completions(
+            make_request(
+                {
+                    "model": "gpt-5-6-terra",
+                    "thinking": True,
+                    "messages": [{"role": "user", "content": "hello"}],
+                }
+            )
+        )
+
+    assert response is streamed_response
+    args = stream_mock.await_args.args
+    assert args[1:4] == (
+        "reasoning",
+        "gpt-5.6-terra-thinking",
+        "gpt-5-6-terra-thinking",
+    )
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_rejects_non_boolean_thinking():
+    response = await oai.oai_chat_completions(
+        make_request(
+            {
+                "model": "gpt-5-6-terra",
+                "thinking": "true",
+                "messages": [{"role": "user", "content": "hello"}],
+            }
+        )
+    )
+
+    assert response.status_code == 400
+    assert json.loads(response.body)["error"]["message"] == "thinking must be a boolean"
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_rejects_reasoning_effort():
+    response = await oai.oai_chat_completions(
+        make_request(
+            {
+                "model": "gpt-5-6-terra",
+                "reasoning_effort": "high",
+                "messages": [{"role": "user", "content": "hello"}],
+            }
+        )
+    )
+
+    assert response.status_code == 400
+    assert (
+        "not supported by the Perplexity web upstream"
+        in json.loads(response.body)["error"]["message"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_returns_session_and_continues_on_bound_account(
+    isolated_oai_sessions,
+):
+    pool = make_pool()
+    responses = [
+        {
+            "status": "ok",
+            "data": {
+                "answer": "First answer",
+                "sources": [],
+                "_follow_up": {"backend_uuid": "backend-1", "attachments": []},
+            },
+        },
+        {
+            "status": "ok",
+            "data": {
+                "answer": "Second answer",
+                "sources": [],
+                "_follow_up": {"backend_uuid": "backend-2", "attachments": []},
+            },
+        },
+    ]
+
+    with (
+        patch("perplexity.server.oai.get_pool", return_value=pool),
+        patch("perplexity.server.session_runtime.get_pool", return_value=pool),
+        patch("perplexity.server.session_runtime.run_query", side_effect=responses) as run,
+    ):
+        first_response = await oai.oai_chat_completions(
+            make_request(
+                {
+                    "model": "perplexity-search",
+                    "messages": [{"role": "user", "content": "First question"}],
+                    "stream": False,
+                }
+            )
+        )
+        first = json.loads(first_response.body)
+        session_id = first["session_id"]
+
+        second_response = await oai.oai_chat_completions(
+            make_request(
+                {
+                    "model": "perplexity-search",
+                    "session_id": session_id,
+                    "messages": [
+                        {"role": "user", "content": "First question"},
+                        {"role": "assistant", "content": "First answer"},
+                        {"role": "user", "content": "Second question"},
+                    ],
+                    "stream": False,
+                }
+            )
+        )
+        second = json.loads(second_response.body)
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    assert second["session_id"] == session_id
+    assert second["choices"][0]["message"]["content"] == "Second answer"
+    assert isolated_oai_sessions.get_session(session_id).origin == "oai"
+    assert isolated_oai_sessions.get_session(session_id).client_id == "account-a"
+    assert isolated_oai_sessions.get_session(session_id).backend_uuid == "backend-2"
+    assert run.call_args_list[0].args[0] == "[User]: First question"
+    assert run.call_args_list[1].args[0] == "Second question"
+    assert run.call_args_list[1].args[8] == "account-a"
+    assert run.call_args_list[1].args[9] == {
+        "backend_uuid": "backend-1",
+        "attachments": [],
+    }
+
+
+@pytest.mark.asyncio
+async def test_session_stream_exposes_id_and_commits_cursor(isolated_oai_sessions):
+    pool = make_pool()
+
+    def upstream():
+        yield {"answer": "Hel"}
+        yield {
+            "answer": "Hello",
+            "_follow_up": {"backend_uuid": "backend-stream", "attachments": []},
+        }
+
+    with (
+        patch("perplexity.server.oai.get_pool", return_value=pool),
+        patch("perplexity.server.session_runtime.get_pool", return_value=pool),
+        patch("perplexity.server.session_runtime.run_query_stream", return_value=upstream()),
+    ):
+        response = await oai.oai_chat_completions(
+            make_request(
+                {
+                    "model": "perplexity-search",
+                    "messages": [{"role": "user", "content": "question"}],
+                }
+            )
+        )
+        frames = [frame async for frame in response.body_iterator]
+
+    session_id = response.headers["x-session-id"]
+    payloads = [decode_sse(frame) for frame in frames if frame != "data: [DONE]\n\n"]
+    assert payloads
+    assert all(payload["session_id"] == session_id for payload in payloads)
+    assert payloads[-1]["choices"][0]["finish_reason"] == "stop"
+    assert isolated_oai_sessions.get_session(session_id).backend_uuid == "backend-stream"
+    assert isolated_oai_sessions.get_messages(session_id)[1]["content"] == "Hello"
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_rejects_unknown_session(isolated_oai_sessions):
+    response = await oai.oai_chat_completions(
+        make_request(
+            {
+                "model": "perplexity-search",
+                "session_id": "sess_00000000000000000000000000000000",
+                "messages": [{"role": "user", "content": "hello"}],
+                "stream": False,
+            }
+        )
+    )
+
+    assert response.status_code == 404
+    assert json.loads(response.body)["error"]["message"] == "Session not found"

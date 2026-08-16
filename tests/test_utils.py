@@ -37,9 +37,9 @@ def test_extract_clean_result_preserves_model_downgrade_metadata() -> None:
         {
             "answer": "fallback answer",
             "display_model": "turbo",
-            "user_selected_model": "grok45medium",
+            "user_selected_model": "grok46medium",
             "model_downgraded": True,
-            "requested_model": "grok45medium",
+            "requested_model": "grok46medium",
             "effective_model": "turbo",
         }
     )
@@ -48,8 +48,8 @@ def test_extract_clean_result_preserves_model_downgrade_metadata() -> None:
         "answer": "fallback answer",
         "sources": [],
         "display_model": "turbo",
-        "user_selected_model": "grok45medium",
+        "user_selected_model": "grok46medium",
         "model_downgraded": True,
-        "requested_model": "grok45medium",
+        "requested_model": "grok46medium",
         "effective_model": "turbo",
     }

@@ -285,7 +285,7 @@ def test_sync_client_marks_and_logs_silent_model_downgrade(
             [
                 {
                     "display_model": "turbo",
-                    "user_selected_model": "grok45medium",
+                    "user_selected_model": "grok46medium",
                     "status": "COMPLETED",
                 }
             ]
@@ -304,7 +304,7 @@ def test_sync_client_marks_and_logs_silent_model_downgrade(
             client.search(
                 "downgrade probe",
                 mode="reasoning",
-                model="grok-4.5-thinking",
+                model="grok-4.6-thinking",
                 stream=True,
             )
         )
@@ -312,10 +312,10 @@ def test_sync_client_marks_and_logs_silent_model_downgrade(
     assert events == [
         {
             "display_model": "turbo",
-            "user_selected_model": "grok45medium",
+            "user_selected_model": "grok46medium",
             "status": "COMPLETED",
             "model_downgraded": True,
-            "requested_model": "grok45medium",
+            "requested_model": "grok46medium",
             "effective_model": "turbo",
         }
     ]

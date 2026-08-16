@@ -123,12 +123,12 @@ class TestOAIModels:
             "gpt-5-6-terra-thinking",
             "claude-sonnet-5",
             "claude-sonnet-5-thinking",
-            "gemini-3-1-pro",
-            "gemini-3-1-pro-thinking",
+            "gemini-3-7-flash",
+            "gemini-3-7-flash-thinking",
             "kimi-k3-thinking",
             "glm-5-2-thinking",
-            "grok-4-5",
-            "grok-4-5-thinking",
+            "grok-4-6",
+            "grok-4-6-thinking",
             "nemotron-3-ultra-thinking",
         ]
         for model_id in expected_models:
@@ -141,6 +141,10 @@ class TestOAIModels:
             "claude-4-6-sonnet",
             "claude-4-6-sonnet-thinking",
             "kimi-k2-thinking",
+            "gemini-3-1-pro",
+            "gemini-3-1-pro-thinking",
+            "grok-4-5",
+            "grok-4-5-thinking",
         ]
         for model_id in unexpected_models:
             assert model_id not in model_ids, f"不应再暴露旧模型 '{model_id}'"

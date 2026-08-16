@@ -222,7 +222,7 @@ class TestResearchMode:
     """Research 模式测试。"""
 
     # Research 模式下的前三个可用模型（reasoning 模式）
-    RESEARCH_MODELS = [None, "gemini-3.1-pro", "gpt-5.6-terra-thinking"]
+    RESEARCH_MODELS = [None, "gemini-3.7-flash-thinking", "gpt-5.6-terra-thinking"]
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("model", RESEARCH_MODELS)
@@ -301,9 +301,12 @@ class TestToolsAvailability:
                 "search",
                 "research",
                 "perplexity_ask",
+                "perplexity_ask_v2",
                 "perplexity_search",
                 "perplexity_reason",
                 "perplexity_research",
+                "perplexity_research_v2",
+                "toggle_builtin_tools",
             ]
             for tool_name in expected_tools:
                 assert tool_name in tool_names, f"缺少预期的工具: {tool_name}"

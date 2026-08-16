@@ -6,6 +6,61 @@
 
 An unofficial Perplexity.ai server that exposes search capabilities through MCP (Model Context Protocol) and OpenAI-compatible endpoints. Supports multi-token pools for load balancing, health monitoring, and various search modes.
 
+## AGENT READ — Deployment
+
+> Read this section before advising on or executing deployment. A request for documentation,
+> explanation, or review does **not** authorize a live deployment. Only change a server when the
+> user explicitly asks to deploy, update, rebuild, restart, or roll out the service.
+
+### Route the request
+
+| User intent | Agent action |
+|---|---|
+| Explain or prepare a local installation | Use the Quick Start below; do not change remote systems. |
+| Deploy the configured production server | Follow [`.agents/skills/server-deploy/SKILL.md`](.agents/skills/server-deploy/SKILL.md) exactly. |
+| Validate or diagnose a deployment | Start with `config`, `verify`, `status`, and `logs`; inspect evidence before changing state. |
+
+Treat [`docker-compose.yml`](docker-compose.yml), [`.env.example`](.env.example), and
+[`deploy/compose.sh`](deploy/compose.sh) as the deployment sources of truth. The production entry
+point builds from the checked-out source; do not wait for or substitute a Docker Hub `latest` image.
+
+### First-install prerequisites
+
+- Require Docker with the Compose plugin.
+- Create `.env` and `token_pool_config.json` from their examples only when the destination files do
+  not already exist. Generate a strong `MCP_TOKEN` (for example with `openssl rand -hex 32`).
+- Keep `.env`, `token_pool_config.json`, `data/`, CSRF/session tokens, and admin tokens out of Git and
+  command output. Never overwrite the server copies during an update.
+- Preserve the mounted `data/` directory so the model cache and WebUI/OAI/MCP session database
+  survive container replacement.
+- On an Internet-facing host, bind to a loopback address and place the service behind TLS/reverse
+  proxying; see [`.env.example`](.env.example) for the port form.
+
+Run the guarded deployment entrypoint from the repository checkout:
+
+```bash
+./deploy/compose.sh config
+./deploy/compose.sh up
+./deploy/compose.sh verify
+./deploy/compose.sh status
+```
+
+`up` validates `.env` and the non-empty token pool, builds the application image from the current
+checkout, replaces the service, waits for container health, calls `/health`, and prints status.
+
+### Production release contract
+
+1. Review the intended local diff on `main`, commit only requested files, and push that exact commit.
+2. Confirm local `HEAD` equals `origin/main` before touching the server.
+3. Require a clean remote tracked worktree; use only a fast-forward pull and verify the remote SHA
+   equals the recorded local commit.
+4. Run `./deploy/compose.sh up`, followed by `verify` and `status`.
+5. Report the deployed commit, image ID, `/health` result, and final container state.
+
+Stop on a dirty remote worktree, SHA mismatch, failed build, failed health check, or failed status
+check. Never force-push, run `git reset`/`git clean`, use `docker compose down`, delete images or
+volumes, or replace server secrets and persistent data as part of routine deployment.
+
 ## Screenshots
 **ADMIN Panel**
 `https://yourdomain.com/admin/`
@@ -115,7 +170,7 @@ services:
     environment:
       - MCP_TOKEN=${MCP_TOKEN:-sk-123456}
       - PPLX_ADMIN_TOKEN=${PPLX_ADMIN_TOKEN:-}
-      # - PPLX_WEBUI_SESSION_DB=/app/data/webui_sessions.sqlite3
+      # - PPLX_SESSION_DB=/app/data/webui_sessions.sqlite3
       # - SOCKS_PROXY=${SOCKS_PROXY:-}
     volumes:
       # Mount the token pool and persistent daily model cache
@@ -130,7 +185,7 @@ services:
 MCP_PORT=8000
 MCP_TOKEN=sk-123456
 PPLX_ADMIN_TOKEN=your-admin-token
-# PPLX_WEBUI_SESSION_DB=./data/webui_sessions.sqlite3
+# PPLX_SESSION_DB=./data/webui_sessions.sqlite3
 # Optional outside Docker:
 # PPLX_MODELS_CONFIG_URL=https://raw.githubusercontent.com/escapeWu/perplexity-ai/main/catalog/model_config_v2.json
 # PPLX_MODEL_CACHE_PATH=./data/model_config_v2.json
@@ -140,7 +195,6 @@ PPLX_ADMIN_TOKEN=your-admin-token
 ## Multi-Token Pool (Load Balancing)
 
 Configure multiple Perplexity account tokens to enable load balancing and high availability. See the "Prepare Configuration" section above for the JSON structure.
-
 
 ## MCP Configuration
 
@@ -162,13 +216,28 @@ Configure multiple Perplexity account tokens to enable load balancing and high a
 
 | Tool | When to use |
 |------|-------------|
-| `perplexity_ask` | Quick general questions using low-cost auto mode |
-| `perplexity_search` | Current web search with Pro mode and web sources |
-| `perplexity_reason` | Multi-step reasoning with the default reasoning model |
-| `perplexity_research` | Slower, comprehensive deep research |
-| `search` | Parameterized auto/pro search with model, source, language, file, and fallback controls |
-| `research` | Parameterized reasoning/deep research with model, source, language, file, and fallback controls |
-| `list_models` | Inspect supported modes and model mappings |
+| `perplexity_ask_v2` | Ask/search with an optional OAI model ID, `thinking`, files, and `session_id` |
+| `perplexity_research_v2` | Run Deep Research with optional files and `session_id` |
+
+`perplexity_ask_v2` defaults to `perplexity-search` when `model` is omitted.
+Its `model` values are the same IDs returned by `/v1/models`, for example
+`gpt-5-6-terra`; `thinking: true` selects the paired thinking model. Both v2
+tools create a session when `session_id` is omitted and return it at the top
+level of the result:
+
+```json
+{
+  "status": "ok",
+  "session_id": "sess_...",
+  "model": "gpt-5-6-terra-thinking",
+  "data": {"answer": "...", "sources": []}
+}
+```
+
+The legacy tools `list_models`, `search`, `research`, `perplexity_ask`,
+`perplexity_search`, `perplexity_reason`, `perplexity_research`, and
+`toggle_builtin_tools` remain callable for compatibility, but are marked
+`deprecated` / `pending_removal` in MCP metadata and descriptions.
 
 ## OpenAI Compatible Endpoints
 
@@ -181,6 +250,25 @@ Perplexity progress chunks so it can display analysis, web search, source review
 and answer-writing stages. Other OpenAI clients can opt in with
 `"perplexity": {"include_progress": true}`; the extension is disabled by default
 for API compatibility.
+
+Every valid chat-completions request is assigned a native conversation session.
+Omit `session_id` to start one, then read the top-level `session_id` from the JSON
+response. Streaming responses include the same value in every JSON SSE chunk and
+in the `X-Session-ID` response header. To continue, send that ID with only the
+current user turn:
+
+```json
+{
+  "model": "perplexity-search",
+  "session_id": "sess_...",
+  "messages": [{"role": "user", "content": "Now compare it with Tokyo"}],
+  "stream": false
+}
+```
+
+The first turn permanently binds the session to one compatible Perplexity
+account. Follow-ups reuse that account and the upstream native cursor; they never
+fail over to another account. An unknown session returns HTTP 404.
 
 ### Examples
 
@@ -216,6 +304,22 @@ curl http://127.0.0.1:8000/v1/chat/completions \
 Progress updates remain regular `chat.completion.chunk` events with an empty
 content delta and an additional `perplexity_progress` field. Clients that do not
 understand the extension can leave it disabled.
+
+For catalog models that provide both regular and reasoning variants, pass
+`"thinking": true` while keeping the regular model ID. The server resolves the
+paired `-thinking` model before calling Perplexity:
+
+```json
+{
+  "model": "gpt-5-6-terra",
+  "thinking": true,
+  "messages": [{"role": "user", "content": "Analyze this problem"}]
+}
+```
+
+Models without a reasoning variant return an `invalid_request_error`.
+`reasoning_effort` is intentionally rejected: Perplexity's web endpoint exposes
+reasoning through model selection and does not provide a verified effort control.
 
 ### Supported Models
 

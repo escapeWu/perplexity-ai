@@ -6,17 +6,20 @@ import asyncio
 import json
 import time
 import uuid
-from dataclasses import dataclass
-from typing import Any, Dict, Iterator, Optional, Union
+from typing import Any, Dict, Optional, Union
 
 from starlette.concurrency import iterate_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, StreamingResponse
 
-from ..model_registry import get_model_registry
-from .app import extract_clean_result, get_pool, mcp, run_query, run_query_stream
-from .oai import _create_error_response, _extract_files_from_messages, _stream_delta, _verify_auth
+from .app import extract_clean_result, get_pool, mcp
+from .oai import _create_error_response, _extract_files_from_messages, _verify_auth
 from .progress import ProgressTracker, make_progress_chunk
+from .session_runtime import CommittedTurn as _CommittedTurn
+from .session_runtime import SessionChatError as WebUIChatError
+from .session_runtime import run_session_non_stream as _run_session_non_stream
+from .session_runtime import run_session_stream as _run_session_stream
+from .session_runtime import stream_delta as _stream_delta
 from .utils import parse_oai_model
 from .webui_sessions import (
     InvalidWebUISession,
@@ -25,20 +28,6 @@ from .webui_sessions import (
     WebUISessionStore,
     get_webui_session_store,
 )
-
-
-class WebUIChatError(Exception):
-    """Error safe to return from the dedicated WebUI chat endpoint."""
-
-    def __init__(self, message: str, *, status_code: int = 502, error_type: str = "api_error"):
-        super().__init__(message)
-        self.status_code = status_code
-        self.error_type = error_type
-
-
-@dataclass(frozen=True)
-class _CommittedTurn:
-    session: WebUISession
 
 
 def _session_error(exc: Exception) -> JSONResponse:
@@ -85,176 +74,6 @@ def _query_from_message(message: Dict[str, Any], *, has_files: bool) -> str:
     raise InvalidWebUISession("The current user message cannot be empty")
 
 
-def _claim_account(
-    store: WebUISessionStore,
-    session: WebUISession,
-    mode: str,
-    model: Optional[str],
-) -> WebUISession:
-    """Bind one compatible healthy pool account before the first request."""
-    if session.client_id:
-        return session
-
-    pool = get_pool()
-    required_tier = get_model_registry().required_tier(mode, model)
-    excluded_ids: set[str] = set()
-    pro_mode = mode in {"pro", "reasoning", "deep research"}
-
-    for _ in range(max(1, len(pool.clients))):
-        client_id, client = pool.get_client(
-            exclude_ids=excluded_ids,
-            required_tier=required_tier,
-        )
-        if client_id is None or client is None:
-            break
-        if pro_mode and pool.get_client_state(client_id) == "downgrade":
-            excluded_ids.add(client_id)
-            continue
-
-        store.bind_client_once(session.id, client_id)
-        return store.get_session(session.id)
-
-    raise WebUIChatError(
-        "No healthy account is available for this session and model.",
-        status_code=503,
-        error_type="service_unavailable",
-    )
-
-
-def _cursor_from_data(data: Dict[str, Any]) -> tuple[str, list[str]]:
-    follow_up = data.get("_follow_up")
-    if not isinstance(follow_up, dict):
-        raise WebUIChatError("Upstream response did not include a native follow-up cursor")
-    backend_uuid = follow_up.get("backend_uuid")
-    attachments = follow_up.get("attachments", [])
-    if not isinstance(backend_uuid, str) or not backend_uuid.strip():
-        raise WebUIChatError("Upstream response did not include a native follow-up cursor")
-    if not isinstance(attachments, list) or not all(
-        isinstance(attachment, str) for attachment in attachments
-    ):
-        raise WebUIChatError("Upstream response included invalid follow-up attachments")
-    return backend_uuid, attachments
-
-
-def _query_error(result: Dict[str, Any]) -> WebUIChatError:
-    message = result.get("message", "WebUI session request failed")
-    error_type = result.get("error_type", "api_error")
-    if error_type == "ValidationError":
-        return WebUIChatError(message, status_code=400, error_type="invalid_request_error")
-    if "bound account" in str(message).lower() or error_type == "NoAvailableClients":
-        return WebUIChatError(message, status_code=503, error_type="service_unavailable")
-    return WebUIChatError(message)
-
-
-def _run_session_non_stream(
-    store: WebUISessionStore,
-    session_id: str,
-    *,
-    user_message: Dict[str, Any],
-    query: str,
-    files: Dict[str, bytes],
-    mode: str,
-    model: Optional[str],
-    model_id: str,
-) -> tuple[Dict[str, Any], WebUISession]:
-    with store.turn_lock(session_id):
-        session = _claim_account(store, store.get_session(session_id), mode, model)
-        result = run_query(
-            query,
-            mode,
-            model,
-            None,
-            "en-US",
-            False,
-            files,
-            False,
-            session.client_id,
-            session.follow_up(),
-            True,
-        )
-        if result.get("status") != "ok":
-            raise _query_error(result)
-
-        data = result.get("data", {})
-        if not isinstance(data, dict):
-            raise WebUIChatError("Upstream response was not an object")
-        backend_uuid, attachments = _cursor_from_data(data)
-        answer = data.get("answer", "")
-        if not isinstance(answer, str):
-            answer = str(answer)
-        sources = data.get("sources", [])
-        committed = store.commit_turn(
-            session_id,
-            user_content=user_message.get("content", ""),
-            assistant_content=answer,
-            sources=sources,
-            backend_uuid=backend_uuid,
-            attachments=attachments,
-            model=model_id,
-        )
-        return data, committed
-
-
-def _run_session_stream(
-    store: WebUISessionStore,
-    session_id: str,
-    *,
-    user_message: Dict[str, Any],
-    query: str,
-    files: Dict[str, bytes],
-    mode: str,
-    model: Optional[str],
-    model_id: str,
-) -> Iterator[Union[Dict[str, Any], _CommittedTurn]]:
-    """Hold the session lock until a stream fully commits or is closed."""
-    with store.turn_lock(session_id):
-        session = _claim_account(store, store.get_session(session_id), mode, model)
-        upstream = run_query_stream(
-            query,
-            mode,
-            model,
-            None,
-            "en-US",
-            False,
-            files,
-            False,
-            session.client_id,
-            session.follow_up(),
-        )
-        accumulated_answer = ""
-        latest_sources: list[Dict[str, Any]] = []
-        latest_follow_up: Optional[Dict[str, Any]] = None
-        try:
-            for upstream_chunk in upstream:
-                clean_chunk = extract_clean_result(upstream_chunk)
-                answer = clean_chunk.get("answer", "")
-                if isinstance(answer, str):
-                    _, accumulated_answer = _stream_delta(accumulated_answer, answer)
-                sources = clean_chunk.get("sources", [])
-                if isinstance(sources, list) and sources:
-                    latest_sources = sources
-                if isinstance(upstream_chunk.get("_follow_up"), dict):
-                    latest_follow_up = upstream_chunk["_follow_up"]
-                yield upstream_chunk
-
-            cursor_data: Dict[str, Any] = {"_follow_up": latest_follow_up}
-            backend_uuid, attachments = _cursor_from_data(cursor_data)
-            committed = store.commit_turn(
-                session_id,
-                user_content=user_message.get("content", ""),
-                assistant_content=accumulated_answer,
-                sources=latest_sources,
-                backend_uuid=backend_uuid,
-                attachments=attachments,
-                model=model_id,
-            )
-            yield _CommittedTurn(committed)
-        finally:
-            close = getattr(upstream, "close", None)
-            if close:
-                close()
-
-
 async def _webui_stream_response(
     store: WebUISessionStore,
     session_id: str,
@@ -273,7 +92,7 @@ async def _webui_stream_response(
         upstream = _run_session_stream(
             store,
             session_id,
-            user_message=user_message,
+            user_content=user_message.get("content", ""),
             query=query,
             files=files,
             mode=mode,
@@ -526,7 +345,7 @@ async def webui_chat_completions(
             _run_session_non_stream,
             store,
             session_id,
-            user_message=user_message,
+            user_content=user_message.get("content", ""),
             query=query,
             files=files,
             mode=mode,

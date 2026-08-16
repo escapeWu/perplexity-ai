@@ -5,7 +5,7 @@ Provides model discovery, parameterized search/research tools, and simple agent-
 
 import asyncio
 import json
-from typing import Any, Dict, Iterable, List, Optional, Union
+from typing import Any, Callable, Dict, Iterable, List, Optional, Union
 
 try:
     from ..config import SEARCH_MODES
@@ -19,14 +19,59 @@ try:
 except ImportError:
     from perplexity.server.app import get_pool, mcp, run_query
 
+try:
+    from .session_runtime import SessionChatError, get_or_create_session, run_session_non_stream
+    from .utils import parse_oai_model, parse_oai_model_with_thinking
+    from .webui_sessions import (
+        InvalidWebUISession,
+        WebUISessionNotFound,
+        get_webui_session_store,
+    )
+except ImportError:
+    from perplexity.server.session_runtime import (
+        SessionChatError,
+        get_or_create_session,
+        run_session_non_stream,
+    )
+    from perplexity.server.utils import parse_oai_model, parse_oai_model_with_thinking
+    from perplexity.server.webui_sessions import (
+        InvalidWebUISession,
+        WebUISessionNotFound,
+        get_webui_session_store,
+    )
+
 # If mcp is None (e.g. testing env), create a dummy decorator
 if mcp is None:
 
     class DummyMCP:
-        def tool(self, func):
+        def tool(self, func=None, **kwargs):
+            del kwargs
+            if func is None:
+                return lambda decorated: decorated
             return func
 
     mcp = DummyMCP()
+
+
+def _deprecated_tool(replacement: Optional[str] = None) -> Callable:
+    """Register an old tool with human- and machine-readable deprecation markers."""
+
+    def decorator(func: Callable) -> Any:
+        replacement_text = f" Use `{replacement}` instead." if replacement else ""
+        notice = (
+            "DEPRECATED: This tool is retained for compatibility and will be removed in "
+            f"a future release.{replacement_text}"
+        )
+        func.__doc__ = f"{notice}\n\n{(func.__doc__ or '').strip()}"
+        metadata: Dict[str, Any] = {
+            "deprecated": True,
+            "deprecation_status": "pending_removal",
+        }
+        if replacement:
+            metadata["replacement"] = replacement
+        return mcp.tool(tags={"deprecated"}, meta=metadata)(func)
+
+    return decorator
 
 
 def list_models_tool(
@@ -55,7 +100,145 @@ async def _run_query_async(
     )
 
 
-@mcp.tool
+def _mcp_session_error(exc: Exception, session_id: Optional[str] = None) -> Dict[str, Any]:
+    if isinstance(exc, WebUISessionNotFound):
+        error_type = "SessionNotFound"
+    elif isinstance(exc, (InvalidWebUISession, ValueError)):
+        error_type = "ValidationError"
+    elif isinstance(exc, SessionChatError):
+        error_type = exc.error_type
+    else:
+        error_type = type(exc).__name__
+    result: Dict[str, Any] = {
+        "status": "error",
+        "error_type": error_type,
+        "message": str(exc),
+    }
+    if session_id is not None:
+        result["session_id"] = session_id
+    return result
+
+
+async def _run_v2_session_query(
+    query: str,
+    *,
+    mode: str,
+    model: Optional[str],
+    model_id: str,
+    session_id: Optional[str],
+    files: Optional[Union[Dict[str, Any], Iterable[str]]],
+) -> Dict[str, Any]:
+    """Execute a v2 MCP turn through the same native session runtime as OAI/WebUI."""
+    resolved_session_id = session_id
+    try:
+        store = get_webui_session_store()
+        session = get_or_create_session(store, session_id, origin="mcp")
+        resolved_session_id = session.id
+        data, _ = await asyncio.to_thread(
+            run_session_non_stream,
+            store,
+            session.id,
+            user_content=query,
+            query=query,
+            files=files or {},
+            mode=mode,
+            model=model,
+            model_id=model_id,
+        )
+    except Exception as exc:
+        return _mcp_session_error(exc, resolved_session_id)
+
+    public_data = dict(data)
+    public_data.pop("_follow_up", None)
+    return {
+        "status": "ok",
+        "session_id": session.id,
+        "model": model_id,
+        "data": public_data,
+    }
+
+
+@mcp.tool(tags={"v2", "session"}, meta={"version": "v2"})
+async def perplexity_ask_v2(
+    query: str,
+    model: Optional[str] = None,
+    thinking: bool = False,
+    session_id: Optional[str] = None,
+    files: Optional[Union[Dict[str, Any], Iterable[str]]] = None,
+) -> Dict[str, Any]:
+    """Ask Perplexity with an OAI model ID and an optional native conversation session.
+
+    Omit ``model`` to use ``perplexity-search``. Set ``thinking=true`` to resolve
+    the selected model's paired thinking variant. Omit ``session_id`` to start a
+    new conversation; the returned ID can be supplied on the next call.
+    """
+    if not isinstance(query, str) or not query.strip():
+        return _mcp_session_error(ValueError("query must be a non-empty string"), session_id)
+    if not isinstance(thinking, bool):
+        return _mcp_session_error(ValueError("thinking must be a boolean"), session_id)
+    if model is not None and (not isinstance(model, str) or not model.strip()):
+        return _mcp_session_error(
+            ValueError("model must be a non-empty OAI model ID when provided"), session_id
+        )
+
+    requested_model_id = model if model is not None else "perplexity-search"
+    try:
+        mode, internal_model, effective_model_id = parse_oai_model_with_thinking(
+            requested_model_id,
+            thinking,
+            get_pool().get_model_subscription_tiers(),
+        )
+        if mode == "deep research":
+            raise ValueError(
+                "perplexity_ask_v2 does not accept the Deep Research model; "
+                "use perplexity_research_v2"
+            )
+    except ValueError as exc:
+        return _mcp_session_error(exc, session_id)
+
+    return await _run_v2_session_query(
+        query.strip(),
+        mode=mode,
+        model=internal_model,
+        model_id=effective_model_id,
+        session_id=session_id,
+        files=files,
+    )
+
+
+@mcp.tool(tags={"v2", "session"}, meta={"version": "v2"})
+async def perplexity_research_v2(
+    query: str,
+    session_id: Optional[str] = None,
+    files: Optional[Union[Dict[str, Any], Iterable[str]]] = None,
+) -> Dict[str, Any]:
+    """Run Deep Research with an optional native conversation session.
+
+    Omit ``session_id`` to start a new conversation; pass the returned ID to
+    continue the same upstream thread on its permanently bound account.
+    """
+    if not isinstance(query, str) or not query.strip():
+        return _mcp_session_error(ValueError("query must be a non-empty string"), session_id)
+
+    try:
+        mode, internal_model = parse_oai_model(
+            "perplexity-deepsearch",
+            get_pool().get_model_subscription_tiers(),
+        )
+    except ValueError as exc:
+        return _mcp_session_error(exc, session_id)
+
+    return await _run_v2_session_query(
+        query.strip(),
+        mode=mode,
+        model=internal_model,
+        model_id="perplexity-deepsearch",
+        session_id=session_id,
+        files=files,
+    )
+
+
+@_deprecated_tool("GET /v1/models")
 def list_models() -> Dict[str, Any]:
     """
     获取 Perplexity 支持的所有搜索模式和模型列表
@@ -68,7 +251,7 @@ def list_models() -> Dict[str, Any]:
     return list_models_tool(get_pool().get_model_subscription_tiers())
 
 
-@mcp.tool
+@_deprecated_tool("perplexity_ask_v2")
 async def search(
     query: str,
     mode: str = "pro",
@@ -96,8 +279,8 @@ async def search(
             - 'sonar-2': Perplexity Sonar 2 ('sonar' 为兼容别名)
             - 'gpt-5.6-terra': OpenAI GPT-5.6 Terra
             - 'claude-sonnet-5': Anthropic Claude Sonnet 5
-            - 'gemini-3.1-pro': Google Gemini Pro
-            - 'grok-4.5': xAI Grok 4.5
+            - 'gemini-3.7-flash': Google Gemini 3.7 Flash
+            - 'grok-4.6': xAI Grok 4.6
         sources: 搜索来源列表
             - 'web': 网页搜索 (默认)
             - 'scholar': 学术论文
@@ -119,11 +302,11 @@ async def search(
     )
 
 
-@mcp.tool
+@_deprecated_tool("perplexity_research_v2")
 async def research(
     query: str,
     mode: str = "reasoning",
-    model: Optional[str] = "gemini-3.1-pro",
+    model: Optional[str] = "gemini-3.7-flash-thinking",
     sources: Optional[List[str]] = None,
     language: str = "en-US",
     incognito: bool = False,
@@ -143,12 +326,12 @@ async def research(
             - 'reasoning': 推理模式，多步思考分析 (默认)
             - 'deep research': 深度研究，最全面但最耗时
         model: 指定推理模型 (仅 reasoning 模式生效)
-            - 'gemini-3.1-pro': Google Gemini Pro (默认，推荐)
+            - 'gemini-3.7-flash-thinking': Google Gemini 3.7 Flash Thinking (默认，推荐)
             - 'gpt-5.6-terra-thinking': OpenAI GPT-5.6 Terra Thinking
             - 'claude-sonnet-5-thinking': Claude Sonnet 5 Thinking
             - 'kimi-k3-thinking': Moonshot Kimi K3
             - 'glm-5.2': Z.ai GLM 5.2
-            - 'grok-4.5-thinking': xAI Grok 4.5 Thinking
+            - 'grok-4.6-thinking': xAI Grok 4.6 Thinking
             - 'nemotron-3-ultra': NVIDIA Nemotron 3 Ultra
         sources: 搜索来源列表
             - 'web': 网页搜索 (默认)
@@ -174,7 +357,7 @@ async def research(
     )
 
 
-@mcp.tool
+@_deprecated_tool("perplexity_ask_v2")
 async def perplexity_ask(
     query: str,
     language: str = "en-US",
@@ -201,7 +384,7 @@ async def perplexity_ask(
     )
 
 
-@mcp.tool
+@_deprecated_tool("perplexity_ask_v2")
 async def perplexity_search(
     query: str,
     language: str = "en-US",
@@ -227,7 +410,7 @@ async def perplexity_search(
     )
 
 
-@mcp.tool
+@_deprecated_tool("perplexity_ask_v2")
 async def perplexity_reason(
     query: str,
     language: str = "en-US",
@@ -253,7 +436,7 @@ async def perplexity_reason(
     )
 
 
-@mcp.tool
+@_deprecated_tool("perplexity_research_v2")
 async def perplexity_research(
     query: str,
     language: str = "en-US",
@@ -279,7 +462,7 @@ async def perplexity_research(
     )
 
 
-@mcp.tool
+@_deprecated_tool()
 def toggle_builtin_tools(action: str = "status") -> str:
     """
     开关 Claude Code 内置的 WebSearch 和 WebFetch 工具。

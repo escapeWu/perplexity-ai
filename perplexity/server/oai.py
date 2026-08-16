@@ -9,7 +9,7 @@ import json
 import os
 import time
 import uuid
-from typing import Dict, Optional, Union
+from typing import Any, Dict, Optional, Union
 
 from starlette.concurrency import iterate_in_threadpool
 from starlette.requests import Request
@@ -17,10 +17,24 @@ from starlette.responses import JSONResponse, StreamingResponse
 
 from .files_store import FileEntry, get_files_store
 from .progress import ProgressTracker, make_progress_chunk
+from .session_runtime import (
+    CommittedTurn,
+    SessionChatError,
+    get_or_create_session,
+    run_session_non_stream,
+    run_session_stream,
+    stream_delta,
+)
 from .utils import (
     create_oai_error_response,
     generate_oai_models,
-    parse_oai_model,
+    parse_oai_model_with_thinking,
+)
+from .webui_sessions import (
+    InvalidWebUISession,
+    WebUISessionNotFound,
+    WebUISessionStore,
+    get_webui_session_store,
 )
 
 try:
@@ -49,37 +63,59 @@ except ImportError:
 
 # If mcp is None (e.g. testing env), create a dummy decorator
 if mcp is None:
+
     class DummyMCP:
         def custom_route(self, *args, **kwargs):
             def decorator(func):
                 return func
+
             return decorator
+
     mcp = DummyMCP()
 
 
 # ==================== Auth & Error Helpers ====================
+
 
 def _verify_auth(request: Request) -> Optional[JSONResponse]:
     """Verify Authorization header. Returns error response if invalid, None if valid."""
     auth = request.headers.get("authorization") or request.headers.get("Authorization")
     if auth != f"Bearer {MCP_TOKEN}":
         return _create_error_response(
-            "Unauthorized: Invalid or missing Bearer token",
-            "authentication_error",
-            401
+            "Unauthorized: Invalid or missing Bearer token", "authentication_error", 401
         )
     return None
 
 
-def _create_error_response(message: str, error_type: str, status_code: int) -> JSONResponse:
+def _create_error_response(
+    message: str,
+    error_type: str,
+    status_code: int,
+    *,
+    session_id: Optional[str] = None,
+) -> JSONResponse:
     """Create standardized OpenAI-format error response."""
-    return JSONResponse(
-        create_oai_error_response(message, error_type),
-        status_code=status_code
-    )
+    payload = create_oai_error_response(message, error_type)
+    if session_id is not None:
+        payload["session_id"] = session_id
+    return JSONResponse(payload, status_code=status_code)
+
+
+def _session_error_response(exc: Exception, session_id: Optional[str] = None) -> JSONResponse:
+    """Map shared session errors to OpenAI-compatible HTTP responses."""
+    if isinstance(exc, InvalidWebUISession):
+        return _create_error_response(str(exc), "invalid_request_error", 400, session_id=session_id)
+    if isinstance(exc, WebUISessionNotFound):
+        return _create_error_response(str(exc), "invalid_request_error", 404, session_id=session_id)
+    if isinstance(exc, SessionChatError):
+        return _create_error_response(
+            str(exc), exc.error_type, exc.status_code, session_id=session_id
+        )
+    return _create_error_response(str(exc), "api_error", 500, session_id=session_id)
 
 
 # ==================== File Validation & Resolution ====================
+
 
 def _validate_extension(filename: str) -> None:
     """Raise ValueError if filename extension is not in the whitelist."""
@@ -147,6 +183,7 @@ def _resolve_file_url(part: dict) -> tuple[str, bytes]:
 
     try:
         from curl_cffi import requests as curl_requests
+
         resp = curl_requests.get(url, timeout=30)
         if not resp.ok:
             raise ValueError(f"Failed to fetch file_url '{url}': HTTP {resp.status_code}")
@@ -180,6 +217,8 @@ def _extract_files_from_messages(messages: list) -> Dict[str, bytes]:
     """
     files: Dict[str, bytes] = {}
     for msg in messages:
+        if not isinstance(msg, dict):
+            raise ValueError("Each messages entry must be an object")
         content = msg.get("content", "")
         if not isinstance(content, list):
             continue
@@ -191,7 +230,47 @@ def _extract_files_from_messages(messages: list) -> Dict[str, bytes]:
     return files
 
 
+def _latest_user_message(messages: list) -> Dict[str, Any]:
+    """Return the current user turn from an OpenAI messages array."""
+    for message in reversed(messages):
+        if isinstance(message, dict) and message.get("role") == "user":
+            content = message.get("content", "")
+            if not isinstance(content, (str, list)):
+                raise ValueError("The current user message content must be a string or array")
+            return message
+    raise ValueError("messages must contain a user message")
+
+
+def _message_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    return " ".join(
+        part.get("text", "")
+        for part in content
+        if isinstance(part, dict)
+        and part.get("type") == "text"
+        and isinstance(part.get("text"), str)
+    )
+
+
+def _query_from_messages(messages: list) -> str:
+    """Flatten messages for a new session's first upstream request."""
+    query_parts = []
+    role_labels = {"system": "System", "user": "User", "assistant": "Assistant"}
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        role = message.get("role", "")
+        content = _message_text(message.get("content", ""))
+        if content and role in role_labels:
+            query_parts.append(f"[{role_labels[role]}]: {content}")
+    return "\n\n".join(query_parts)
+
+
 # ==================== Chat Response Helpers ====================
+
 
 async def _non_stream_chat_response(
     query: str,
@@ -201,63 +280,82 @@ async def _non_stream_chat_response(
     response_id: str,
     created: int,
     files: Optional[Dict[str, bytes]] = None,
-    fallback_to_auto: bool = True
+    fallback_to_auto: bool = True,
+    *,
+    session_store: Optional[WebUISessionStore] = None,
+    session_id: Optional[str] = None,
+    user_content: Any = None,
 ) -> JSONResponse:
     """Generate non-streaming chat completion response."""
-    pool = get_pool()
-    incognito = pool.is_incognito_enabled()
-    result = await asyncio.to_thread(
-        run_query, query, mode, model, None, "en-US", incognito, files or {}, fallback_to_auto
-    )
+    if session_store is not None and session_id is not None:
+        try:
+            data, _ = await asyncio.to_thread(
+                run_session_non_stream,
+                session_store,
+                session_id,
+                user_content=user_content,
+                query=query,
+                files=files or {},
+                mode=mode,
+                model=model,
+                model_id=model_id,
+            )
+        except Exception as exc:
+            return _session_error_response(exc, session_id)
+    else:
+        pool = get_pool()
+        incognito = pool.is_incognito_enabled()
+        result = await asyncio.to_thread(
+            run_query,
+            query,
+            mode,
+            model,
+            None,
+            "en-US",
+            incognito,
+            files or {},
+            fallback_to_auto,
+        )
 
-    if result.get("status") == "error":
-        error_msg = result.get("message", "Unknown error")
-        error_type = result.get("error_type", "api_error")
-        if error_type == "NoAvailableClients":
-            return _create_error_response(error_msg, "service_unavailable", 503)
-        return _create_error_response(error_msg, "api_error", 500)
+        if result.get("status") == "error":
+            error_msg = result.get("message", "Unknown error")
+            error_type = result.get("error_type", "api_error")
+            if error_type == "NoAvailableClients":
+                return _create_error_response(error_msg, "service_unavailable", 503)
+            return _create_error_response(error_msg, "api_error", 500)
 
-    data = result.get("data", {})
+        data = result.get("data", {})
     answer = data.get("answer", "")
     sources = data.get("sources", [])
 
     prompt_tokens = len(query.split())
     completion_tokens = len(answer.split())
 
-    return JSONResponse({
+    payload = {
         "id": response_id,
         "object": "chat.completion",
         "created": created,
         "model": model_id,
-        "choices": [{
-            "index": 0,
-            "message": {
-                "role": "assistant",
-                "content": answer
-            },
-            "finish_reason": "stop"
-        }],
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": answer},
+                "finish_reason": "stop",
+            }
+        ],
         "usage": {
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
-            "total_tokens": prompt_tokens + completion_tokens
+            "total_tokens": prompt_tokens + completion_tokens,
         },
-        "sources": sources
-    })
+        "sources": sources,
+    }
+    if session_id is not None:
+        payload["session_id"] = session_id
+    return JSONResponse(payload)
 
 
-def _stream_delta(previous: str, current: str) -> tuple[str, str]:
-    """Convert cumulative upstream answer snapshots into append-only deltas."""
-    if not current or current == previous:
-        return "", previous
-    if current.startswith(previous):
-        return current[len(previous) :], current
-    if previous.startswith(current):
-        return "", previous
-
-    # Some upstream variants may emit independent fragments instead of
-    # cumulative snapshots. Preserve those fragments as append-only content.
-    return current, previous + current
+_stream_delta = stream_delta
 
 
 async def _stream_chat_response(
@@ -270,22 +368,44 @@ async def _stream_chat_response(
     files: Optional[Dict[str, bytes]] = None,
     fallback_to_auto: bool = True,
     include_progress: bool = False,
+    *,
+    session_store: Optional[WebUISessionStore] = None,
+    session_id: Optional[str] = None,
+    user_content: Any = None,
 ) -> StreamingResponse:
     """Forward the upstream Perplexity stream as OpenAI-compatible SSE."""
 
+    def with_session_id(payload: Dict[str, Any]) -> Dict[str, Any]:
+        if session_id is not None:
+            payload["session_id"] = session_id
+        return payload
+
     async def event_generator():
-        upstream = run_query_stream(
-            query,
-            mode,
-            model,
-            None,
-            "en-US",
-            False,
-            files or {},
-            fallback_to_auto,
-        )
+        if session_store is not None and session_id is not None:
+            upstream = run_session_stream(
+                session_store,
+                session_id,
+                user_content=user_content,
+                query=query,
+                files=files or {},
+                mode=mode,
+                model=model,
+                model_id=model_id,
+            )
+        else:
+            upstream = run_query_stream(
+                query,
+                mode,
+                model,
+                None,
+                "en-US",
+                False,
+                files or {},
+                fallback_to_auto,
+            )
         accumulated_content = ""
         latest_sources = []
+        committed_turn: Optional[CommittedTurn] = None
         progress_tracker = ProgressTracker() if include_progress else None
 
         try:
@@ -301,16 +421,21 @@ async def _stream_chat_response(
                     }
                 )
                 for progress in initial_updates:
-                    progress_data = make_progress_chunk(
-                        response_id, created, model_id, progress
+                    progress_data = with_session_id(
+                        make_progress_chunk(response_id, created, model_id, progress)
                     )
                     yield f"data: {json.dumps(progress_data, ensure_ascii=False)}\n\n"
 
-            async for upstream_chunk in iterate_in_threadpool(upstream):
+            async for item in iterate_in_threadpool(upstream):
+                if isinstance(item, CommittedTurn):
+                    committed_turn = item
+                    continue
+
+                upstream_chunk = item
                 if progress_tracker is not None:
                     for progress in progress_tracker.update(upstream_chunk):
-                        progress_data = make_progress_chunk(
-                            response_id, created, model_id, progress
+                        progress_data = with_session_id(
+                            make_progress_chunk(response_id, created, model_id, progress)
                         )
                         yield f"data: {json.dumps(progress_data, ensure_ascii=False)}\n\n"
 
@@ -320,50 +445,55 @@ async def _stream_chat_response(
                     latest_sources = sources
 
                 answer = clean_chunk.get("answer", "")
-                delta, accumulated_content = _stream_delta(
-                    accumulated_content, answer
-                )
+                if not isinstance(answer, str):
+                    continue
+                delta, accumulated_content = _stream_delta(accumulated_content, answer)
                 if not delta:
                     continue
 
-                chunk_data = {
-                    "id": response_id,
-                    "object": "chat.completion.chunk",
-                    "created": created,
-                    "model": model_id,
-                    "choices": [{
-                        "index": 0,
-                        "delta": {"content": delta},
-                        "finish_reason": None
-                    }]
-                }
+                chunk_data = with_session_id(
+                    {
+                        "id": response_id,
+                        "object": "chat.completion.chunk",
+                        "created": created,
+                        "model": model_id,
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {"content": delta},
+                                "finish_reason": None,
+                            }
+                        ],
+                    }
+                )
                 yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
+
+            if session_store is not None and committed_turn is None:
+                raise SessionChatError("The session turn ended without being committed")
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             if progress_tracker is not None:
                 failed_progress = progress_tracker.finish("failed")
                 if failed_progress is not None:
-                    progress_data = make_progress_chunk(
-                        response_id, created, model_id, failed_progress
+                    progress_data = with_session_id(
+                        make_progress_chunk(response_id, created, model_id, failed_progress)
                     )
                     yield f"data: {json.dumps(progress_data, ensure_ascii=False)}\n\n"
 
-            error_data = {
-                "id": response_id,
-                "object": "chat.completion.chunk",
-                "created": created,
-                "model": model_id,
-                "choices": [{
-                    "index": 0,
-                    "delta": {},
-                    "finish_reason": "error"
-                }],
-                "error": {
-                    "message": str(exc),
-                    "type": "api_error",
-                },
-            }
+            error_data = with_session_id(
+                {
+                    "id": response_id,
+                    "object": "chat.completion.chunk",
+                    "created": created,
+                    "model": model_id,
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "error"}],
+                    "error": {
+                        "message": str(exc),
+                        "type": getattr(exc, "error_type", "api_error"),
+                    },
+                }
+            )
             yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
             yield "data: [DONE]\n\n"
             return
@@ -375,38 +505,40 @@ async def _stream_chat_response(
         if progress_tracker is not None:
             completed_progress = progress_tracker.finish("completed")
             if completed_progress is not None:
-                progress_data = make_progress_chunk(
-                    response_id, created, model_id, completed_progress
+                progress_data = with_session_id(
+                    make_progress_chunk(response_id, created, model_id, completed_progress)
                 )
                 yield f"data: {json.dumps(progress_data, ensure_ascii=False)}\n\n"
 
-        final_data = {
-            "id": response_id,
-            "object": "chat.completion.chunk",
-            "created": created,
-            "model": model_id,
-            "choices": [{
-                "index": 0,
-                "delta": {},
-                "finish_reason": "stop"
-            }],
-            "sources": latest_sources
-        }
-        yield f"data: {json.dumps(final_data)}\n\n"
+        final_data = with_session_id(
+            {
+                "id": response_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": model_id,
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                "sources": latest_sources,
+            }
+        )
+        yield f"data: {json.dumps(final_data, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
 
+    headers = {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+    }
+    if session_id is not None:
+        headers["X-Session-ID"] = session_id
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        }
+        headers=headers,
     )
 
 
 # ==================== OpenAI-Compatible API Endpoints ====================
+
 
 @mcp.custom_route("/v1/models", methods=["GET"])
 async def oai_list_models(request: Request) -> JSONResponse:
@@ -417,10 +549,7 @@ async def oai_list_models(request: Request) -> JSONResponse:
 
     pool = get_pool()
     models = generate_oai_models(pool.get_model_subscription_tiers())
-    return JSONResponse({
-        "object": "list",
-        "data": models
-    })
+    return JSONResponse({"object": "list", "data": models})
 
 
 @mcp.custom_route("/v1/files", methods=["POST"])
@@ -437,7 +566,9 @@ async def oai_upload_file(request: Request) -> JSONResponse:
 
     upload = form.get("file")
     if upload is None:
-        return _create_error_response("Missing 'file' field in form data", "invalid_request_error", 400)
+        return _create_error_response(
+            "Missing 'file' field in form data", "invalid_request_error", 400
+        )
 
     filename = getattr(upload, "filename", None) or "upload"
     try:
@@ -504,6 +635,7 @@ async def oai_chat_completions(request: Request) -> Union[JSONResponse, Streamin
     Streams upstream events by default. Pass stream=false to wait for a complete
     JSON response. Accepts input_file content parts (file_data, file_url, file_id).
     Streaming clients may opt into progress chunks with perplexity.include_progress.
+    Dynamic search models may set thinking=true to select their reasoning variant.
     """
     auth_error = _verify_auth(request)
     if auth_error:
@@ -513,25 +645,44 @@ async def oai_chat_completions(request: Request) -> Union[JSONResponse, Streamin
         body = await request.json()
     except Exception:
         return _create_error_response("Invalid JSON body", "invalid_request_error", 400)
+    if not isinstance(body, dict):
+        return _create_error_response(
+            "Request body must be an object", "invalid_request_error", 400
+        )
 
     model_id = body.get("model")
     messages = body.get("messages", [])
     stream = body.get("stream", True)
+    thinking = body.get("thinking", False)
     perplexity_options = body.get("perplexity", {})
+    requested_session_id = body.get("session_id")
 
-    if not model_id:
+    if not isinstance(model_id, str) or not model_id:
         return _create_error_response("model is required", "invalid_request_error", 400)
 
-    if not messages:
+    if not isinstance(messages, list) or not messages:
         return _create_error_response("messages is required", "invalid_request_error", 400)
-    if not isinstance(stream, bool):
+    if requested_session_id is not None and (
+        not isinstance(requested_session_id, str) or not requested_session_id
+    ):
         return _create_error_response(
-            "stream must be a boolean", "invalid_request_error", 400
+            "session_id must be a non-empty string when provided",
+            "invalid_request_error",
+            400,
+        )
+    if not isinstance(stream, bool):
+        return _create_error_response("stream must be a boolean", "invalid_request_error", 400)
+    if not isinstance(thinking, bool):
+        return _create_error_response("thinking must be a boolean", "invalid_request_error", 400)
+    if body.get("reasoning_effort") is not None:
+        return _create_error_response(
+            "reasoning_effort is not supported by the Perplexity web upstream; "
+            "use thinking=true to select a thinking model",
+            "invalid_request_error",
+            400,
         )
     if not isinstance(perplexity_options, dict):
-        return _create_error_response(
-            "perplexity must be an object", "invalid_request_error", 400
-        )
+        return _create_error_response("perplexity must be an object", "invalid_request_error", 400)
     include_progress = perplexity_options.get("include_progress", False)
     if not isinstance(include_progress, bool):
         return _create_error_response(
@@ -541,44 +692,55 @@ async def oai_chat_completions(request: Request) -> Union[JSONResponse, Streamin
         )
 
     try:
-        mode, model = parse_oai_model(
+        mode, model, effective_model_id = parse_oai_model_with_thinking(
             model_id,
+            thinking,
             get_pool().get_model_subscription_tiers(),
         )
     except ValueError as e:
         return _create_error_response(str(e), "invalid_request_error", 400)
 
-    # Extract files from input_file content parts
     try:
-        files = await asyncio.to_thread(_extract_files_from_messages, messages)
+        user_message = _latest_user_message(messages)
+    except ValueError as e:
+        return _create_error_response(str(e), "invalid_request_error", 400)
+
+    try:
+        store = get_webui_session_store()
+    except Exception as exc:
+        return _session_error_response(exc, requested_session_id)
+    session = None
+    if requested_session_id is not None:
+        try:
+            session = get_or_create_session(store, requested_session_id, origin="oai")
+        except Exception as exc:
+            return _session_error_response(exc, requested_session_id)
+
+    # Extract files from input_file content parts
+    file_messages = [user_message] if requested_session_id is not None else messages
+    try:
+        files = await asyncio.to_thread(_extract_files_from_messages, file_messages)
     except LookupError as e:
         return _create_error_response(str(e), "invalid_request_error", 404)
     except ValueError as e:
         return _create_error_response(str(e), "invalid_request_error", 400)
 
-    # Build query text from messages (skip input_file parts)
-    query_parts = []
-    for msg in messages:
-        role = msg.get("role", "")
-        content = msg.get("content", "")
-        if isinstance(content, list):
-            # Extract only text parts; input_file parts are handled separately
-            content = " ".join(
-                part.get("text", "") for part in content
-                if isinstance(part, dict) and part.get("type") == "text"
-            )
-        if content:
-            if role == "system":
-                query_parts.append(f"[System]: {content}")
-            elif role == "user":
-                query_parts.append(f"[User]: {content}")
-            elif role == "assistant":
-                query_parts.append(f"[Assistant]: {content}")
-
-    if not query_parts:
+    # A continued native thread sends only the latest user turn. For a newly
+    # created session, preserve the existing OAI behavior and flatten any
+    # supplied initial history into the first upstream request.
+    if requested_session_id is not None:
+        query = _message_text(user_message.get("content", "")).strip()
+    else:
+        query = _query_from_messages(messages)
+    if not query:
         return _create_error_response("No messages found", "invalid_request_error", 400)
 
-    query = "\n\n".join(query_parts)
+    if session is None:
+        try:
+            session = get_or_create_session(store, None, origin="oai")
+        except Exception as exc:
+            return _session_error_response(exc)
+
     response_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
     created = int(time.time())
 
@@ -587,13 +749,25 @@ async def oai_chat_completions(request: Request) -> Union[JSONResponse, Streamin
             query,
             mode,
             model,
-            model_id,
+            effective_model_id,
             response_id,
             created,
             files,
             include_progress=include_progress,
+            session_store=store,
+            session_id=session.id,
+            user_content=user_message.get("content", ""),
         )
     else:
         return await _non_stream_chat_response(
-            query, mode, model, model_id, response_id, created, files
+            query,
+            mode,
+            model,
+            effective_model_id,
+            response_id,
+            created,
+            files,
+            session_store=store,
+            session_id=session.id,
+            user_content=user_message.get("content", ""),
         )

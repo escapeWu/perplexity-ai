@@ -86,6 +86,13 @@ def test_repository_snapshot_is_valid_and_contains_pro_and_max_models() -> None:
     assert summary["max_entries"] > 0
     assert summary["usable_models"] > 4
 
+    search_entries = {item["label"]: item for item in catalog["search_config"]}
+    assert search_entries["Gemini 3.7 Flash"]["non_reasoning_model"] == "gemini37flash"
+    assert search_entries["Gemini 3.7 Flash"]["reasoning_model"] == "gemini37flashthinking"
+    assert search_entries["Grok 4.6"]["non_reasoning_model"] == "grok46low"
+    assert search_entries["Grok 4.6"]["reasoning_model"] == "grok46medium"
+    assert {"Gemini 3.1 Pro", "Grok 4.5"}.isdisjoint(search_entries)
+
 
 def test_load_catalog_rejects_invalid_schema(tmp_path: Path) -> None:
     source = tmp_path / "invalid.json"

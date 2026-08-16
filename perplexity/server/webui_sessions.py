@@ -1,4 +1,4 @@
-"""Durable, server-owned chat sessions for the bundled WebUI."""
+"""Durable, server-owned chat sessions shared by WebUI, OAI, and MCP callers."""
 
 from __future__ import annotations
 
@@ -17,10 +17,11 @@ from uuid import uuid4
 DEFAULT_SESSION_TITLE = "New chat"
 MAX_SESSION_TITLE_LENGTH = 120
 SESSION_ID_PATTERN = re.compile(r"^sess_[0-9a-f]{32}$")
+SESSION_ORIGINS = frozenset({"webui", "oai", "mcp"})
 
 
 class WebUISessionError(Exception):
-    """Base error for WebUI session operations."""
+    """Base error for shared session operations."""
 
 
 class WebUISessionNotFound(WebUISessionError):
@@ -40,6 +41,7 @@ class WebUISession:
     backend_uuid: Optional[str]
     attachments: List[str]
     model: Optional[str]
+    origin: str
     created_at: float
     updated_at: float
 
@@ -67,7 +69,7 @@ class WebUISession:
 
 def validate_session_id(session_id: str) -> str:
     if not isinstance(session_id, str) or not SESSION_ID_PATTERN.fullmatch(session_id):
-        raise InvalidWebUISession("Invalid WebUI session id")
+        raise InvalidWebUISession("Invalid session id")
     return session_id
 
 
@@ -122,7 +124,7 @@ def _title_from_content(content: Any) -> str:
 
 
 class WebUISessionStore:
-    """SQLite-backed WebUI session store with immutable account affinity."""
+    """SQLite-backed shared session store with immutable account affinity."""
 
     def __init__(self, database_path: str | Path):
         self.database_path = Path(database_path)
@@ -150,6 +152,7 @@ class WebUISessionStore:
                     backend_uuid TEXT,
                     attachments_json TEXT NOT NULL DEFAULT '[]',
                     model TEXT,
+                    origin TEXT NOT NULL DEFAULT 'webui',
                     created_at REAL NOT NULL,
                     updated_at REAL NOT NULL
                 );
@@ -170,6 +173,20 @@ class WebUISessionStore:
                     ON webui_messages(session_id, id);
                 """
             )
+            columns = {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(webui_sessions)").fetchall()
+            }
+            if "origin" not in columns:
+                connection.execute(
+                    "ALTER TABLE webui_sessions ADD COLUMN origin TEXT NOT NULL DEFAULT 'webui'"
+                )
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_webui_sessions_origin_updated
+                ON webui_sessions(origin, updated_at DESC)
+                """
+            )
 
     @staticmethod
     def _session_from_row(row: sqlite3.Row) -> WebUISession:
@@ -188,11 +205,19 @@ class WebUISessionStore:
             backend_uuid=row["backend_uuid"],
             attachments=attachments,
             model=row["model"],
+            origin=row["origin"],
             created_at=float(row["created_at"]),
             updated_at=float(row["updated_at"]),
         )
 
-    def create_session(self, title: Optional[str] = None) -> WebUISession:
+    def create_session(
+        self,
+        title: Optional[str] = None,
+        *,
+        origin: str = "webui",
+    ) -> WebUISession:
+        if origin not in SESSION_ORIGINS:
+            raise InvalidWebUISession(f"Invalid session origin: {origin}")
         session_id = f"sess_{uuid4().hex}"
         clean_title = validate_session_title(title) if title is not None else DEFAULT_SESSION_TITLE
         now = time.time()
@@ -200,18 +225,30 @@ class WebUISessionStore:
             connection.execute(
                 """
                 INSERT INTO webui_sessions (
-                    id, title, title_is_custom, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?)
+                    id, title, title_is_custom, origin, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (session_id, clean_title, int(title is not None), now, now),
+                (session_id, clean_title, int(title is not None), origin, now, now),
             )
         return self.get_session(session_id)
 
-    def list_sessions(self) -> List[WebUISession]:
+    def list_sessions(self, *, origin: Optional[str] = "webui") -> List[WebUISession]:
+        if origin is not None and origin not in SESSION_ORIGINS:
+            raise InvalidWebUISession(f"Invalid session origin: {origin}")
         with self._connect() as connection:
-            rows = connection.execute(
-                "SELECT * FROM webui_sessions ORDER BY updated_at DESC, created_at DESC"
-            ).fetchall()
+            if origin is None:
+                rows = connection.execute(
+                    "SELECT * FROM webui_sessions ORDER BY updated_at DESC, created_at DESC"
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """
+                    SELECT * FROM webui_sessions
+                    WHERE origin = ?
+                    ORDER BY updated_at DESC, created_at DESC
+                    """,
+                    (origin,),
+                ).fetchall()
         return [self._session_from_row(row) for row in rows]
 
     def get_session(self, session_id: str) -> WebUISession:
@@ -221,7 +258,7 @@ class WebUISessionStore:
                 "SELECT * FROM webui_sessions WHERE id = ?", (session_id,)
             ).fetchone()
         if row is None:
-            raise WebUISessionNotFound("WebUI session not found")
+            raise WebUISessionNotFound("Session not found")
         return self._session_from_row(row)
 
     def get_messages(self, session_id: str) -> List[Dict[str, Any]]:
@@ -270,7 +307,7 @@ class WebUISessionStore:
                 (clean_title, time.time(), session_id),
             )
         if cursor.rowcount == 0:
-            raise WebUISessionNotFound("WebUI session not found")
+            raise WebUISessionNotFound("Session not found")
         return self.get_session(session_id)
 
     def delete_session(self, session_id: str) -> None:
@@ -278,7 +315,7 @@ class WebUISessionStore:
         with self._connect() as connection:
             cursor = connection.execute("DELETE FROM webui_sessions WHERE id = ?", (session_id,))
         if cursor.rowcount == 0:
-            raise WebUISessionNotFound("WebUI session not found")
+            raise WebUISessionNotFound("Session not found")
         with self._locks_guard:
             self._turn_locks.pop(session_id, None)
 
@@ -294,7 +331,7 @@ class WebUISessionStore:
                 "SELECT client_id FROM webui_sessions WHERE id = ?", (session_id,)
             ).fetchone()
             if row is None:
-                raise WebUISessionNotFound("WebUI session not found")
+                raise WebUISessionNotFound("Session not found")
             bound_client_id = row["client_id"]
             if bound_client_id is None:
                 connection.execute(
@@ -339,7 +376,7 @@ class WebUISessionStore:
                 (session_id, session_id),
             ).fetchone()
             if row is None:
-                raise WebUISessionNotFound("WebUI session not found")
+                raise WebUISessionNotFound("Session not found")
 
             connection.execute(
                 """
@@ -401,7 +438,7 @@ _store_lock = threading.Lock()
 
 
 def default_session_database_path() -> Path:
-    configured = os.getenv("PPLX_WEBUI_SESSION_DB")
+    configured = os.getenv("PPLX_SESSION_DB") or os.getenv("PPLX_WEBUI_SESSION_DB")
     if configured:
         return Path(configured).expanduser()
     return Path.cwd() / "data" / "webui_sessions.sqlite3"

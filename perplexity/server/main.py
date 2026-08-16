@@ -20,8 +20,10 @@ from .app import get_pool, mcp
 from .mcp import (  # noqa: F401
     list_models,
     perplexity_ask,
+    perplexity_ask_v2,
     perplexity_reason,
     perplexity_research,
+    perplexity_research_v2,
     perplexity_search,
     research,
     search,

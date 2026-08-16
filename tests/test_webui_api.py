@@ -148,7 +148,8 @@ async def test_non_stream_first_turn_binds_and_commits_then_follow_up_reuses_cur
     with (
         patch("perplexity.server.webui.get_webui_session_store", return_value=store),
         patch("perplexity.server.webui.get_pool", return_value=pool),
-        patch("perplexity.server.webui.run_query", side_effect=responses) as run,
+        patch("perplexity.server.session_runtime.get_pool", return_value=pool),
+        patch("perplexity.server.session_runtime.run_query", side_effect=responses) as run,
     ):
         for text in ("First question", "Second question"):
             response = await webui.webui_chat_completions(
@@ -197,8 +198,9 @@ async def test_first_turn_failure_keeps_binding_and_missing_cursor_does_not_comm
     with (
         patch("perplexity.server.webui.get_webui_session_store", return_value=store),
         patch("perplexity.server.webui.get_pool", return_value=pool),
+        patch("perplexity.server.session_runtime.get_pool", return_value=pool),
         patch(
-            "perplexity.server.webui.run_query",
+            "perplexity.server.session_runtime.run_query",
             return_value={"status": "error", "error_type": "RuntimeError", "message": "boom"},
         ),
     ):
@@ -222,8 +224,9 @@ async def test_first_turn_failure_keeps_binding_and_missing_cursor_does_not_comm
     with (
         patch("perplexity.server.webui.get_webui_session_store", return_value=store),
         patch("perplexity.server.webui.get_pool", return_value=pool),
+        patch("perplexity.server.session_runtime.get_pool", return_value=pool),
         patch(
-            "perplexity.server.webui.run_query",
+            "perplexity.server.session_runtime.run_query",
             return_value={"status": "ok", "data": {"answer": "orphan", "sources": []}},
         ),
     ):
@@ -261,7 +264,8 @@ async def test_stream_commits_only_after_cursor_and_reports_session(tmp_path: Pa
     with (
         patch("perplexity.server.webui.get_webui_session_store", return_value=store),
         patch("perplexity.server.webui.get_pool", return_value=pool),
-        patch("perplexity.server.webui.run_query_stream", return_value=upstream()),
+        patch("perplexity.server.session_runtime.get_pool", return_value=pool),
+        patch("perplexity.server.session_runtime.run_query_stream", return_value=upstream()),
     ):
         response = await webui.webui_chat_completions(
             make_request(
@@ -309,7 +313,8 @@ async def test_cancelled_stream_does_not_commit_turn(tmp_path: Path) -> None:
     with (
         patch("perplexity.server.webui.get_webui_session_store", return_value=store),
         patch("perplexity.server.webui.get_pool", return_value=pool),
-        patch("perplexity.server.webui.run_query_stream", return_value=iterator),
+        patch("perplexity.server.session_runtime.get_pool", return_value=pool),
+        patch("perplexity.server.session_runtime.run_query_stream", return_value=iterator),
     ):
         response = await webui.webui_chat_completions(
             make_request(
@@ -340,9 +345,9 @@ def test_bound_account_failure_does_not_claim_another_account(tmp_path: Path) ->
     pool = make_pool("account-b")
 
     with (
-        patch("perplexity.server.webui.get_pool", return_value=pool),
+        patch("perplexity.server.session_runtime.get_pool", return_value=pool),
         patch(
-            "perplexity.server.webui.run_query",
+            "perplexity.server.session_runtime.run_query",
             return_value={
                 "status": "error",
                 "error_type": "RuntimeError",
@@ -354,7 +359,7 @@ def test_bound_account_failure_does_not_claim_another_account(tmp_path: Path) ->
             webui._run_session_non_stream(
                 store,
                 session.id,
-                user_message={"role": "user", "content": "question"},
+                user_content="question",
                 query="question",
                 files={},
                 mode="auto",

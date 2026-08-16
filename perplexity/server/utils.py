@@ -83,6 +83,41 @@ def parse_oai_model(
     return mapping[model_id]
 
 
+def parse_oai_model_with_thinking(
+    model_id: str,
+    thinking: bool = False,
+    subscription_tiers: Optional[Iterable[str]] = None,
+) -> Tuple[str, Optional[str], str]:
+    """Resolve an OAI model ID and optionally select its thinking variant.
+
+    Perplexity's web API represents reasoning as a distinct model preference,
+    not as a boolean request parameter. This helper keeps ``thinking`` as an
+    OpenAI-compatible convenience at our API boundary and resolves it to the
+    catalog's corresponding ``-thinking`` model before calling upstream.
+    """
+    mode, model = parse_oai_model(model_id, subscription_tiers)
+    if not thinking or mode == "reasoning":
+        return mode, model, model_id
+
+    if mode != "pro":
+        raise ValueError(f"Model '{model_id}' does not support thinking")
+
+    thinking_model_id = (
+        "perplexity-thinking" if model_id == "perplexity-search" else f"{model_id}-thinking"
+    )
+    try:
+        thinking_mode, thinking_model = parse_oai_model(
+            thinking_model_id,
+            subscription_tiers,
+        )
+    except ValueError as exc:
+        raise ValueError(f"Model '{model_id}' does not support thinking") from exc
+
+    if thinking_mode != "reasoning":
+        raise ValueError(f"Model '{model_id}' does not support thinking")
+    return thinking_mode, thinking_model, thinking_model_id
+
+
 def generate_oai_models(
     subscription_tiers: Optional[Iterable[str]] = None,
 ) -> List[Dict[str, Any]]:

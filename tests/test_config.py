@@ -28,17 +28,17 @@ def test_search_modes_and_models() -> None:
         "sonar": "experimental",
         "gpt-5.6-terra": "gpt56_terra",
         "claude-sonnet-5": "claude50sonnet",
-        "gemini-3.1-pro": "gemini31pro_high",
-        "grok-4.5": "grok45low",
+        "gemini-3.7-flash": "gemini37flash",
+        "grok-4.6": "grok46low",
     }
     assert config.MODEL_MAPPINGS["reasoning"] == {
         None: "pplx_reasoning",
         "gpt-5.6-terra-thinking": "gpt56_terra_thinking",
         "claude-sonnet-5-thinking": "claude50sonnetthinking",
-        "gemini-3.1-pro": "gemini31pro_high",
+        "gemini-3.7-flash-thinking": "gemini37flashthinking",
         "kimi-k3-thinking": "kimik3thinking",
         "glm-5.2": "glm_5_2",
-        "grok-4.5-thinking": "grok45medium",
+        "grok-4.6-thinking": "grok46medium",
         "nemotron-3-ultra": "nv_nemotron_3_ultra",
     }
     assert "deep research" in config.MODEL_MAPPINGS
@@ -49,6 +49,9 @@ def test_search_modes_and_models() -> None:
         "claude-4.6-sonnet",
         "claude-4.6-sonnet-thinking",
         "kimi-k2-thinking",
+        "gemini-3.1-pro",
+        "grok-4.5",
+        "grok-4.5-thinking",
     }
     exposed_models = {
         model

@@ -1,5 +1,7 @@
 """Pure unit tests for OpenAI-compatible model discovery and parsing."""
 
+import pytest
+
 from perplexity.server import utils
 
 EXPECTED_OAI_MODELS = {
@@ -7,15 +9,15 @@ EXPECTED_OAI_MODELS = {
     "sonar-2",
     "gpt-5-6-terra",
     "claude-sonnet-5",
-    "gemini-3-1-pro",
-    "grok-4-5",
+    "gemini-3-7-flash",
+    "grok-4-6",
     "perplexity-thinking",
     "gpt-5-6-terra-thinking",
     "claude-sonnet-5-thinking",
-    "gemini-3-1-pro-thinking",
+    "gemini-3-7-flash-thinking",
     "kimi-k3-thinking",
     "glm-5-2-thinking",
-    "grok-4-5-thinking",
+    "grok-4-6-thinking",
     "nemotron-3-ultra-thinking",
     "perplexity-deepsearch",
 }
@@ -54,3 +56,34 @@ def test_reasoning_only_names_receive_thinking_suffix() -> None:
     assert utils._oai_id("reasoning", "glm-5.2") == "glm-5-2-thinking"
     assert utils._oai_id("reasoning", "nemotron-3-ultra") == "nemotron-3-ultra-thinking"
     assert utils._oai_id("reasoning", "gpt-5.6-terra-thinking") == "gpt-5-6-terra-thinking"
+
+
+def test_thinking_flag_selects_paired_dynamic_model() -> None:
+    assert utils.parse_oai_model_with_thinking("gpt-5-6-terra", True) == (
+        "reasoning",
+        "gpt-5.6-terra-thinking",
+        "gpt-5-6-terra-thinking",
+    )
+    assert utils.parse_oai_model_with_thinking("gemini-3-7-flash", True) == (
+        "reasoning",
+        "gemini-3.7-flash-thinking",
+        "gemini-3-7-flash-thinking",
+    )
+    assert utils.parse_oai_model_with_thinking("grok-4-6", True) == (
+        "reasoning",
+        "grok-4.6-thinking",
+        "grok-4-6-thinking",
+    )
+
+
+def test_thinking_flag_selects_default_reasoning_model() -> None:
+    assert utils.parse_oai_model_with_thinking("perplexity-search", True) == (
+        "reasoning",
+        None,
+        "perplexity-thinking",
+    )
+
+
+def test_thinking_flag_rejects_model_without_reasoning_variant() -> None:
+    with pytest.raises(ValueError, match="does not support thinking"):
+        utils.parse_oai_model_with_thinking("sonar-2", True)
