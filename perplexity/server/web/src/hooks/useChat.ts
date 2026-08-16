@@ -16,8 +16,16 @@ import {
   webuiChatCompletion,
   webuiChatCompletionStream
 } from 'lib/api'
+import {
+  modelBaseId,
+  modelIsThinking,
+  modelIsThinkingOnly,
+  modelSupportsThinking
+} from 'lib/modelCatalog'
 
 const ACTIVE_SESSION_KEY = 'webui_active_session_id'
+const SELECTED_MODEL_KEY = 'oai_selected_model'
+const THINKING_KEY = 'oai_thinking'
 
 export interface ChatState {
   messages: ChatMessage[]
@@ -29,6 +37,7 @@ export interface ChatState {
   error: string | null
   models: OAIModel[]
   selectedModel: string
+  thinking: boolean
   apiToken: string
   streamEnabled: boolean
   pendingFiles: File[]
@@ -36,6 +45,31 @@ export interface ChatState {
 
 function sortSessions(sessions: ChatSession[]): ChatSession[] {
   return [...sessions].sort((left, right) => right.updated_at - left.updated_at)
+}
+
+interface ModelSelection {
+  model: string
+  thinking: boolean
+}
+
+export function resolveModelSelection(
+  models: OAIModel[],
+  modelId: string,
+  preferredThinking = false
+): ModelSelection | null {
+  const requested = models.find((model) => model.id === modelId)
+  if (!requested) return null
+
+  const base =
+    models.find((model) => model.id === modelBaseId(requested, models)) ||
+    requested
+  return {
+    model: base.id,
+    thinking:
+      modelIsThinkingOnly(requested, models) ||
+      modelIsThinking(requested) ||
+      (preferredThinking && modelSupportsThinking(base, models))
+  }
 }
 
 function updateLastAssistant(
@@ -119,7 +153,10 @@ export function useChat() {
   const [error, setError] = useState<string | null>(null)
   const [models, setModels] = useState<OAIModel[]>([])
   const [selectedModel, setSelectedModel] = useState(
-    () => localStorage.getItem('oai_selected_model') || 'perplexity-search'
+    () => localStorage.getItem(SELECTED_MODEL_KEY) || 'perplexity-search'
+  )
+  const [thinking, setThinking] = useState(
+    () => localStorage.getItem(THINKING_KEY) === 'true'
   )
   const [apiToken, setApiToken] = useState(
     () => localStorage.getItem('oai_api_token') || ''
@@ -157,10 +194,56 @@ export function useChat() {
     )
   }, [])
 
-  const handleSetSelectedModel = useCallback((model: string) => {
+  const persistSelectedModel = useCallback((model: string) => {
     setSelectedModel(model)
-    localStorage.setItem('oai_selected_model', model)
+    localStorage.setItem(SELECTED_MODEL_KEY, model)
   }, [])
+
+  const persistThinking = useCallback((enabled: boolean) => {
+    setThinking(enabled)
+    localStorage.setItem(THINKING_KEY, String(enabled))
+  }, [])
+
+  const applyModelSelection = useCallback(
+    (selection: ModelSelection) => {
+      persistSelectedModel(selection.model)
+      persistThinking(selection.thinking)
+    },
+    [persistSelectedModel, persistThinking]
+  )
+
+  const handleSetSelectedModel = useCallback(
+    (model: string) => {
+      const selection = resolveModelSelection(models, model, thinking)
+      if (selection) {
+        applyModelSelection(selection)
+        return
+      }
+      persistSelectedModel(model)
+      persistThinking(false)
+    },
+    [
+      applyModelSelection,
+      models,
+      persistSelectedModel,
+      persistThinking,
+      thinking
+    ]
+  )
+
+  const handleSetThinking = useCallback(
+    (enabled: boolean) => {
+      const selected = models.find((model) => model.id === selectedModel)
+      if (selected && modelIsThinkingOnly(selected, models)) {
+        persistThinking(true)
+        return
+      }
+      persistThinking(
+        Boolean(selected && enabled && modelSupportsThinking(selected, models))
+      )
+    },
+    [models, persistThinking, selectedModel]
+  )
 
   const saveApiToken = useCallback(
     (token: string) => {
@@ -202,7 +285,18 @@ export function useChat() {
         setPendingFiles([])
         upsertSession(detail)
         if (detail.model) {
-          handleSetSelectedModel(detail.model)
+          const selection = resolveModelSelection(models, detail.model)
+          if (selection) {
+            applyModelSelection(selection)
+          } else if (models.length === 0) {
+            // Preserve an effective session model until discovery can
+            // normalize it to a base ID plus the thinking flag.
+            persistSelectedModel(detail.model)
+            persistThinking(
+              detail.model === 'perplexity-thinking' ||
+                detail.model.endsWith('-thinking')
+            )
+          }
         }
       } catch (err) {
         if (sequence !== sessionLoadSequenceRef.current) return
@@ -216,7 +310,15 @@ export function useChat() {
         }
       }
     },
-    [apiToken, handleSetSelectedModel, setActiveSession, upsertSession]
+    [
+      apiToken,
+      applyModelSelection,
+      models,
+      persistSelectedModel,
+      persistThinking,
+      setActiveSession,
+      upsertSession
+    ]
   )
 
   const createSession = useCallback(
@@ -345,21 +447,29 @@ export function useChat() {
       const response = await fetchOAIModels(apiToken)
       setModels(response.data)
 
-      const currentModelExists = response.data.some(
-        (model) => model.id === selectedModel
+      const rememberedSelection = resolveModelSelection(
+        response.data,
+        selectedModel,
+        thinking
       )
-      if (!currentModelExists && response.data.length > 0) {
+      if (rememberedSelection) {
+        applyModelSelection(rememberedSelection)
+      } else if (response.data.length > 0) {
         const defaultModel = response.data.find(
           (model) => model.id === 'perplexity-search'
         )
-        handleSetSelectedModel(defaultModel?.id || response.data[0].id)
+        const fallback = resolveModelSelection(
+          response.data,
+          defaultModel?.id || response.data[0].id
+        )
+        if (fallback) applyModelSelection(fallback)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load models')
     } finally {
       setIsLoading(false)
     }
-  }, [apiToken, handleSetSelectedModel, selectedModel])
+  }, [apiToken, applyModelSelection, selectedModel, thinking])
 
   const ensureActiveSession = useCallback(async () => {
     if (activeSessionIdRef.current) return activeSessionIdRef.current
@@ -430,6 +540,7 @@ export function useChat() {
             {
               session_id: requestSessionId,
               model: selectedModel,
+              thinking,
               messages: [userMessage]
             },
             apiToken,
@@ -476,6 +587,7 @@ export function useChat() {
             {
               session_id: requestSessionId,
               model: selectedModel,
+              thinking,
               messages: [userMessage]
             },
             apiToken,
@@ -552,6 +664,7 @@ export function useChat() {
       pendingFiles,
       refreshSessionMetadata,
       selectedModel,
+      thinking,
       streamEnabled,
       upsertSession
     ]
@@ -587,10 +700,12 @@ export function useChat() {
     error,
     models,
     selectedModel,
+    thinking,
     apiToken,
     streamEnabled,
     pendingFiles,
     setSelectedModel: handleSetSelectedModel,
+    setThinking: handleSetThinking,
     saveApiToken,
     setStreamEnabled,
     addFiles,

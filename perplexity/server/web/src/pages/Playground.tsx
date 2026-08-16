@@ -17,10 +17,12 @@ export function Playground() {
     error,
     models,
     selectedModel,
+    thinking,
     apiToken,
     streamEnabled,
     pendingFiles,
     setSelectedModel,
+    setThinking,
     saveApiToken,
     setStreamEnabled,
     loadModels,
@@ -175,7 +177,9 @@ export function Playground() {
               }
               models={models}
               selectedModel={selectedModel}
+              thinking={thinking}
               onSelectModel={setSelectedModel}
+              onThinkingChange={setThinking}
               streamEnabled={streamEnabled}
               onStreamEnabledChange={setStreamEnabled}
               isGenerating={isLoading}

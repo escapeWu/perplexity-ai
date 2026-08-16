@@ -20,7 +20,7 @@ from .session_runtime import SessionChatError as WebUIChatError
 from .session_runtime import run_session_non_stream as _run_session_non_stream
 from .session_runtime import run_session_stream as _run_session_stream
 from .session_runtime import stream_delta as _stream_delta
-from .utils import parse_oai_model
+from .utils import parse_oai_model_with_thinking
 from .webui_sessions import (
     InvalidWebUISession,
     WebUISession,
@@ -299,6 +299,9 @@ async def webui_chat_completions(
         stream = body.get("stream", True)
         if not isinstance(stream, bool):
             raise InvalidWebUISession("stream must be a boolean")
+        thinking = body.get("thinking", False)
+        if not isinstance(thinking, bool):
+            raise InvalidWebUISession("thinking must be a boolean")
         options = body.get("perplexity", {})
         if not isinstance(options, dict):
             raise InvalidWebUISession("perplexity must be an object")
@@ -306,8 +309,9 @@ async def webui_chat_completions(
         if not isinstance(include_progress, bool):
             raise InvalidWebUISession("perplexity.include_progress must be a boolean")
 
-        mode, model = parse_oai_model(
+        mode, model, effective_model_id = parse_oai_model_with_thinking(
             model_id,
+            thinking,
             get_pool().get_model_subscription_tiers(),
         )
         user_message = _latest_user_message(body.get("messages"))
@@ -334,7 +338,7 @@ async def webui_chat_completions(
             files=files,
             mode=mode,
             model=model,
-            model_id=model_id,
+            model_id=effective_model_id,
             response_id=response_id,
             created=created,
             include_progress=include_progress,
@@ -350,7 +354,7 @@ async def webui_chat_completions(
             files=files,
             mode=mode,
             model=model,
-            model_id=model_id,
+            model_id=effective_model_id,
         )
     except Exception as exc:
         return _session_error(exc)
@@ -364,7 +368,7 @@ async def webui_chat_completions(
             "id": response_id,
             "object": "chat.completion",
             "created": created,
-            "model": model_id,
+            "model": effective_model_id,
             "choices": [
                 {
                     "index": 0,

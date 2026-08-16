@@ -187,6 +187,74 @@ async def test_non_stream_first_turn_binds_and_commits_then_follow_up_reuses_cur
 
 
 @pytest.mark.asyncio
+async def test_thinking_flag_uses_and_persists_effective_model(tmp_path: Path) -> None:
+    store = make_store(tmp_path)
+    session = store.create_session()
+    pool = make_pool()
+
+    with (
+        patch("perplexity.server.webui.get_webui_session_store", return_value=store),
+        patch("perplexity.server.webui.get_pool", return_value=pool),
+        patch("perplexity.server.session_runtime.get_pool", return_value=pool),
+        patch(
+            "perplexity.server.session_runtime.run_query",
+            return_value={
+                "status": "ok",
+                "data": {
+                    "answer": "Reasoned answer",
+                    "sources": [],
+                    "_follow_up": {"backend_uuid": "backend-thinking", "attachments": []},
+                },
+            },
+        ) as run,
+    ):
+        response = await webui.webui_chat_completions(
+            make_request(
+                "POST",
+                "/v1/webui/chat/completions",
+                {
+                    "session_id": session.id,
+                    "model": "gpt-5-6-terra",
+                    "thinking": True,
+                    "messages": [{"role": "user", "content": "reason about this"}],
+                    "stream": False,
+                },
+                token=webui._verify_auth.__globals__["MCP_TOKEN"],
+            )
+        )
+
+    assert response.status_code == 200
+    assert response_json(response)["model"] == "gpt-5-6-terra-thinking"
+    assert run.call_args.args[1:3] == ("reasoning", "gpt-5.6-terra-thinking")
+    assert store.get_session(session.id).model == "gpt-5-6-terra-thinking"
+
+
+@pytest.mark.asyncio
+async def test_thinking_flag_must_be_boolean(tmp_path: Path) -> None:
+    store = make_store(tmp_path)
+    session = store.create_session()
+
+    with patch("perplexity.server.webui.get_webui_session_store", return_value=store):
+        response = await webui.webui_chat_completions(
+            make_request(
+                "POST",
+                "/v1/webui/chat/completions",
+                {
+                    "session_id": session.id,
+                    "model": "perplexity-search",
+                    "thinking": "true",
+                    "messages": [{"role": "user", "content": "question"}],
+                    "stream": False,
+                },
+                token=webui._verify_auth.__globals__["MCP_TOKEN"],
+            )
+        )
+
+    assert response.status_code == 400
+    assert response_json(response)["error"]["message"] == "thinking must be a boolean"
+
+
+@pytest.mark.asyncio
 async def test_first_turn_failure_keeps_binding_and_missing_cursor_does_not_commit(
     tmp_path: Path,
 ) -> None:

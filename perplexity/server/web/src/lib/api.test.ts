@@ -164,6 +164,7 @@ describe('WebUI session API', () => {
       {
         session_id: 'sess_00000000000000000000000000000001',
         model: 'perplexity-search',
+        thinking: true,
         messages: [{ role: 'user', content: 'current turn' }]
       },
       'test-token'
@@ -173,6 +174,8 @@ describe('WebUI session API', () => {
     const body = JSON.parse(fetchMock.mock.calls[0][1].body)
     expect(body).toMatchObject({
       session_id: 'sess_00000000000000000000000000000001',
+      model: 'perplexity-search',
+      thinking: true,
       stream: false,
       messages: [{ role: 'user', content: 'current turn' }]
     })

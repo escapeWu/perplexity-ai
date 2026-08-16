@@ -114,6 +114,19 @@ def test_oai_models_include_catalog_metadata_and_round_trip(tmp_path: Path) -> N
     assert sol["label"] == "GPT-5.6 Sol"
     assert sol["subscription_tier"] == "max"
     assert sol["mode"] == "pro"
+    assert sol["base_model_id"] == "gpt-5-6-sol"
+    assert sol["thinking_model_id"] == "gpt-5-6-sol-thinking"
+    assert sol["supports_thinking"] is True
+    assert sol["thinking"] is False
+    assert sol["thinking_only"] is False
+    sol_thinking = next(model for model in max_models if model["id"] == "gpt-5-6-sol-thinking")
+    assert sol_thinking["base_model_id"] == "gpt-5-6-sol"
+    assert sol_thinking["thinking_model_id"] == "gpt-5-6-sol-thinking"
+    assert sol_thinking["supports_thinking"] is True
+    assert sol_thinking["thinking"] is True
+    sonar = next(model for model in max_models if model["id"] == "sonar-2")
+    assert sonar["thinking_model_id"] is None
+    assert sonar["supports_thinking"] is False
     assert registry.parse_oai_model("gpt-5-6-sol", {"max"}) == (
         "pro",
         "gpt-5.6-sol",

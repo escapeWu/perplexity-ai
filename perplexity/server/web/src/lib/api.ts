@@ -230,6 +230,11 @@ export interface OAIModel {
   description?: string
   subscription_tier?: 'free' | 'pro' | 'max'
   mode?: 'auto' | 'pro' | 'reasoning' | 'deep research'
+  base_model_id?: string
+  thinking_model_id?: string | null
+  supports_thinking?: boolean
+  thinking?: boolean
+  thinking_only?: boolean
 }
 
 export interface OAIModelsResponse {
@@ -274,6 +279,7 @@ export interface ChatMessage {
 
 export interface ChatCompletionRequest {
   model: string
+  thinking?: boolean
   messages: ChatMessage[]
   stream?: boolean
   temperature?: number

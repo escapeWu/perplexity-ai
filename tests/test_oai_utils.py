@@ -2,6 +2,7 @@
 
 import pytest
 
+from perplexity.model_registry import ModelRegistry
 from perplexity.server import utils
 
 EXPECTED_OAI_MODELS = {
@@ -23,6 +24,13 @@ EXPECTED_OAI_MODELS = {
 }
 
 
+@pytest.fixture(autouse=True)
+def use_repository_model_defaults(tmp_path, monkeypatch) -> None:
+    """Keep pure utility tests independent from a developer's runtime cache."""
+    registry = ModelRegistry(cache_path=tmp_path / "models.json")
+    monkeypatch.setattr(utils, "get_model_registry", lambda: registry)
+
+
 def test_generate_oai_models_exposes_current_non_max_lineup() -> None:
     models = utils.generate_oai_models()
 
@@ -37,6 +45,11 @@ def test_generate_oai_models_exposes_current_non_max_lineup() -> None:
             "description",
             "subscription_tier",
             "mode",
+            "base_model_id",
+            "thinking_model_id",
+            "supports_thinking",
+            "thinking",
+            "thinking_only",
         }
         <= model.keys()
         for model in models

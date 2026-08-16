@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   createWebUISession,
+  fetchOAIModels,
   getWebUISession,
   listWebUISessions,
   webuiChatCompletion,
@@ -10,6 +11,7 @@ import {
 import type {
   ChatCompletionChunk,
   ChatSession,
+  OAIModel,
   PerplexityProgress
 } from 'lib/api'
 import { useChat } from './useChat'
@@ -34,6 +36,39 @@ const session: ChatSession = {
   updated_at: 1
 }
 
+const modelCatalog: OAIModel[] = [
+  {
+    id: 'gpt-5-6-terra',
+    object: 'model',
+    created: 1700000000,
+    owned_by: 'perplexity',
+    label: 'GPT-5.6 Terra',
+    description: 'Versatile model',
+    subscription_tier: 'pro',
+    mode: 'pro',
+    base_model_id: 'gpt-5-6-terra',
+    thinking_model_id: 'gpt-5-6-terra-thinking',
+    supports_thinking: true,
+    thinking: false,
+    thinking_only: false
+  },
+  {
+    id: 'gpt-5-6-terra-thinking',
+    object: 'model',
+    created: 1700000000,
+    owned_by: 'perplexity',
+    label: 'GPT-5.6 Terra Thinking',
+    description: 'Versatile model',
+    subscription_tier: 'pro',
+    mode: 'reasoning',
+    base_model_id: 'gpt-5-6-terra',
+    thinking_model_id: 'gpt-5-6-terra-thinking',
+    supports_thinking: true,
+    thinking: true,
+    thinking_only: false
+  }
+]
+
 function streamChunk(
   content?: string,
   progress?: PerplexityProgress
@@ -56,6 +91,10 @@ function streamChunk(
 
 describe('useChat cancellation', () => {
   beforeEach(() => {
+    vi.mocked(fetchOAIModels).mockResolvedValue({
+      object: 'list',
+      data: modelCatalog
+    })
     vi.mocked(createWebUISession).mockResolvedValue(session)
     vi.mocked(listWebUISessions).mockResolvedValue({
       object: 'list',
@@ -271,6 +310,45 @@ describe('useChat cancellation', () => {
     expect(secondRequest.messages).toEqual([
       { role: 'user', content: 'second' }
     ])
+  })
+
+  it('restores an effective thinking model as base id plus thinking flag', async () => {
+    vi.mocked(getWebUISession).mockResolvedValue({
+      ...session,
+      model: 'gpt-5-6-terra-thinking',
+      messages: []
+    })
+    vi.mocked(webuiChatCompletion).mockResolvedValue({
+      id: 'chatcmpl-test',
+      object: 'chat.completion',
+      created: 1,
+      model: 'gpt-5-6-terra-thinking',
+      choices: [
+        {
+          index: 0,
+          message: { role: 'assistant', content: 'reasoned answer' },
+          finish_reason: 'stop'
+        }
+      ]
+    })
+
+    const { result } = renderHook(() => useChat())
+    act(() => result.current.saveApiToken('test-token'))
+    await act(async () => result.current.loadModels())
+    await waitFor(() => expect(result.current.activeSessionId).toBe(session.id))
+
+    expect(result.current.selectedModel).toBe('gpt-5-6-terra')
+    expect(result.current.thinking).toBe(true)
+    expect(localStorage.getItem('oai_selected_model')).toBe('gpt-5-6-terra')
+    expect(localStorage.getItem('oai_thinking')).toBe('true')
+
+    act(() => result.current.setStreamEnabled(false))
+    await act(async () => result.current.sendMessage('follow up'))
+
+    expect(vi.mocked(webuiChatCompletion).mock.calls[0][0]).toMatchObject({
+      model: 'gpt-5-6-terra',
+      thinking: true
+    })
   })
 
   it('restores the remembered session and keeps histories isolated when switching', async () => {

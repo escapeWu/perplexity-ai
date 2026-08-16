@@ -354,6 +354,37 @@ class ModelRegistry:
 
         models: List[Dict[str, Any]] = []
         for model_id, definition in selected.items():
+            base_model_id = model_id
+            thinking_model_id: Optional[str] = None
+            supports_thinking = False
+            thinking = definition.mode == "reasoning"
+            thinking_only = False
+
+            if definition.mode == "pro":
+                candidate = (
+                    "perplexity-thinking"
+                    if model_id == "perplexity-search"
+                    else f"{model_id}-thinking"
+                )
+                candidate_definition = selected.get(candidate)
+                if candidate_definition is not None and candidate_definition.mode == "reasoning":
+                    thinking_model_id = candidate
+                    supports_thinking = True
+            elif definition.mode == "reasoning":
+                candidate = (
+                    "perplexity-search"
+                    if model_id == "perplexity-thinking"
+                    else model_id.removesuffix("-thinking")
+                )
+                candidate_definition = selected.get(candidate)
+                if candidate_definition is not None and candidate_definition.mode == "pro":
+                    base_model_id = candidate
+                    thinking_model_id = model_id
+                    supports_thinking = True
+                else:
+                    thinking_model_id = model_id
+                    thinking_only = True
+
             models.append(
                 {
                     "id": model_id,
@@ -364,6 +395,13 @@ class ModelRegistry:
                     "description": definition.description,
                     "subscription_tier": definition.subscription_tier or "free",
                     "mode": definition.mode,
+                    # Pairing metadata lets clients render one upstream-style
+                    # model entry while the OAI list keeps both executable IDs.
+                    "base_model_id": base_model_id,
+                    "thinking_model_id": thinking_model_id,
+                    "supports_thinking": supports_thinking,
+                    "thinking": thinking,
+                    "thinking_only": thinking_only,
                 }
             )
         return models

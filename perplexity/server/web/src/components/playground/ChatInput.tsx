@@ -163,7 +163,9 @@ interface ChatInputProps {
   placeholder?: string
   models?: OAIModel[]
   selectedModel?: string
+  thinking?: boolean
   onSelectModel?: (model: string) => void
+  onThinkingChange?: (enabled: boolean) => void
   streamEnabled?: boolean
   onStreamEnabledChange?: (enabled: boolean) => void
   isGenerating?: boolean
@@ -180,7 +182,9 @@ export function ChatInput({
   placeholder = 'Type your message...',
   models = [],
   selectedModel,
+  thinking = false,
   onSelectModel,
+  onThinkingChange,
   streamEnabled = true,
   onStreamEnabledChange,
   isGenerating = false,
@@ -329,7 +333,9 @@ export function ChatInput({
           <CustomSelect
             models={models}
             selectedModel={selectedModel}
+            thinking={thinking}
             onSelect={onSelectModel}
+            onThinkingChange={onThinkingChange}
             disabled={disabled}
           />
         )}
