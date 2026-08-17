@@ -1,0 +1,4 @@
+interface:
+  display_name: "Perplexity Search"
+  short_description: "Fixed Grok Ask and Deep Research sessions"
+  default_prompt: "Use $perplexity-search by default whenever an answer depends on current public-web information. Route focused searches to fixed grok-4-6 Ask with thinking enabled, route broad investigations to perplexity-deepsearch, preserve citations, and reuse session_id for targeted same-topic follow-ups."

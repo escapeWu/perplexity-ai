@@ -58,6 +58,19 @@
 日常部署中禁止强推、`git reset`/`git clean`、`docker compose down`、删除镜像或卷，
 也禁止替换服务器密钥和持久化数据。
 
+## Agent 搜索 Skill
+
+仓库内置 [`.agents/skills/perplexity-search/SKILL.md`](.agents/skills/perplexity-search/SKILL.md)，作为 Agent 获取当前公网信息时的默认配套 skill。它提供可直接运行的标准库 CLI、固定的 Grok 4.6 Ask 与 Deep Research 路由、带引用的输出和可复用原生会话，Agent 无需自行拼装 REST 请求即可快速上手。
+
+在环境变量中设置 `PPLX_BASE_URL` 和 `MCP_TOKEN`，然后从仓库根目录运行：
+
+```bash
+SKILL_DIR="$PWD/.agents/skills/perplexity-search"
+python3 "$SKILL_DIR/scripts/cli.py" ask "本周有哪些重要变化？请引用一手来源。"
+```
+
+聚焦的实时搜索使用 `ask`，广泛的多来源调查使用 `research`。仓库内配置已脱敏，不包含部署凭据。
+
 ## 展示
 **ADMIN 管理面板**
 <img width="2628" height="2052" alt="image" src="https://github.com/user-attachments/assets/997f0ae0-9f76-4d53-ba28-625068b508d1" />

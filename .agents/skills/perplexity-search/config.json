@@ -1,0 +1,5 @@
+{
+  "base_url": "http://127.0.0.1:8000",
+  "api_key": "YOUR_MCP_TOKEN",
+  "timeout_seconds": 300
+}

@@ -61,6 +61,19 @@ Stop on a dirty remote worktree, SHA mismatch, failed build, failed health check
 check. Never force-push, run `git reset`/`git clean`, use `docker compose down`, delete images or
 volumes, or replace server secrets and persistent data as part of routine deployment.
 
+## Agent Search Skill
+
+This repository includes [`.agents/skills/perplexity-search/SKILL.md`](.agents/skills/perplexity-search/SKILL.md) as the default companion skill for Agents that need current public-web information. It provides a ready-to-run standard-library CLI, fixed Grok 4.6 Ask and Deep Research routing, cited output, and reusable native sessions without requiring Agents to construct REST requests manually.
+
+Set `PPLX_BASE_URL` and `MCP_TOKEN` in the environment, then run from the repository root:
+
+```bash
+SKILL_DIR="$PWD/.agents/skills/perplexity-search"
+python3 "$SKILL_DIR/scripts/cli.py" ask "What changed this week? Cite primary sources."
+```
+
+Use `ask` for focused current searches and `research` for broad multi-source investigations. The checked-in configuration is sanitized and contains no deployment credentials.
+
 ## Screenshots
 **ADMIN Panel**
 `https://yourdomain.com/admin/`
