@@ -4,28 +4,26 @@ from unittest.mock import MagicMock, patch
 from perplexity.server.app import run_query, get_pool
 from perplexity.server.client_pool import ClientPool
 
-# Load test config
-TEST_CONFIG_PATH = "tests/test_data/token_pool_config.json"
-with open(TEST_CONFIG_PATH, "r") as f:
-    TEST_CONFIG = json.load(f)
+# Synthetic credentials only; never copy a developer's local token fixture.
+TEST_CONFIG = {"tokens": [
+    {"id": name, "csrf_token": "fixture-csrf", "session_token": "fixture-session"}
+    for name in ("account-a", "account-b")
+]}
 
 @pytest.fixture
-def mock_pool():
-    """Reset global pool and return a new one initialized with test config."""
-    import perplexity.server.app as app_module
-    # Save original pool
-    original_pool = app_module._pool
-    # Create and set new pool
-    pool = ClientPool(TEST_CONFIG_PATH)
-    app_module._pool = pool
+def mock_pool(tmp_path, monkeypatch):
+    """Tests must not write the shared test fixture or bootstrap a real account pool."""
+    path = tmp_path / "pool.json"
+    path.write_text(json.dumps(TEST_CONFIG))
+    pool = ClientPool(str(path))
+    monkeypatch.setattr("perplexity.server.app.get_pool", lambda: pool)
     yield pool
-    # Restore original pool
-    app_module._pool = original_pool
+    pool.close()
 
 def test_single_account_all_retries_fail(mock_pool):
     """
     Scenario 1: Single faulty account.
-    Expectation: Should retry 3 times on the same client, then fail.
+    Expectation: One attempt, without blindly replaying an ambiguous network failure.
     """
     # Setup: Only keep one client in the pool
     mock_pool.clients = {k: v for k, v in list(mock_pool.clients.items())[:1]}
@@ -46,8 +44,8 @@ def test_single_account_all_retries_fail(mock_pool):
     assert result["status"] == "error"
     assert result["message"] == "Network Error"
 
-    # Should have been called 3 times (1 initial + 2 retries)
-    assert mock_search.call_count == 3
+    # One attempt on this account; an unknown upstream outcome is not retried.
+    assert mock_search.call_count == 1
 
     # Verify the client was marked as failed (backoff applied)
     assert wrapper.fail_count > 0
@@ -56,7 +54,7 @@ def test_single_account_all_retries_fail(mock_pool):
 def test_failover_to_next_account(mock_pool):
     """
     Scenario 2: Multi-account failover.
-    Expectation: First account fails 3 times, then switches to second account which succeeds.
+    Expectation: A failed account is tried once, then the legacy helper selects the next account.
     """
     # Ensure we have at least 2 clients
     assert len(mock_pool.clients) >= 2
@@ -90,8 +88,8 @@ def test_failover_to_next_account(mock_pool):
     assert result["status"] == "ok"
     assert result["data"]["answer"] == "Success"
 
-    # First client should have been called 3 times (initial + 2 retries)
-    assert call_tracker["first"] == 3
+    # The first account was attempted once.
+    assert call_tracker["first"] == 1
 
     # Second client should have been called once (success)
     assert call_tracker["second"] == 1

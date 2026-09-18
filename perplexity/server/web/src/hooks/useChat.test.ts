@@ -1,409 +1,430 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  createWebUISession,
-  fetchOAIModels,
-  getWebUISession,
-  listWebUISessions,
-  webuiChatCompletion,
-  webuiChatCompletionStream
-} from 'lib/api'
-import type {
-  ChatCompletionChunk,
-  ChatSession,
-  OAIModel,
-  PerplexityProgress
-} from 'lib/api'
+import * as api from 'lib/api'
+import * as tasks from 'lib/jobs'
+import type { ChatJob, ChatMessage, ChatSession, JobEvent } from 'lib/api'
 import { useChat } from './useChat'
 
-vi.mock('lib/api', () => ({
+vi.mock('lib/api', async (original) => ({
+  ...(await original<typeof api>()),
   fetchOAIModels: vi.fn(),
   createWebUISession: vi.fn(),
   listWebUISessions: vi.fn(),
   getWebUISession: vi.fn(),
   renameWebUISession: vi.fn(),
-  deleteWebUISession: vi.fn(),
-  webuiChatCompletion: vi.fn(),
-  webuiChatCompletionStream: vi.fn()
+  deleteWebUISession: vi.fn()
+}))
+vi.mock('lib/jobs', async (original) => ({
+  ...(await original<typeof tasks>()),
+  submitJob: vi.fn(),
+  getJob: vi.fn(),
+  listJobs: vi.fn(),
+  jobEvents: vi.fn(),
+  waitJobResult: vi.fn(),
+  cancelJob: vi.fn(),
+  uploadAttachment: vi.fn()
 }))
 
-const session: ChatSession = {
-  id: 'sess_00000000000000000000000000000001',
-  title: 'New chat',
+const session = (id: string): ChatSession => ({
+  id,
+  title: id,
   bound_client_id: null,
   model: null,
   created_at: 1,
   updated_at: 1
-}
-
-const modelCatalog: OAIModel[] = [
+})
+const a = session('session-a')
+const b = session('session-b')
+const models: api.OAIModel[] = [
   {
-    id: 'gpt-5-6-terra',
+    id: 'model-a',
     object: 'model',
-    created: 1700000000,
+    created: 1,
     owned_by: 'perplexity',
-    label: 'GPT-5.6 Terra',
-    description: 'Versatile model',
-    subscription_tier: 'pro',
-    mode: 'pro',
-    base_model_id: 'gpt-5-6-terra',
-    thinking_model_id: 'gpt-5-6-terra-thinking',
-    supports_thinking: true,
-    thinking: false,
-    thinking_only: false
+    base_model_id: 'model-a',
+    thinking_model_id: 'model-a-thinking',
+    supports_thinking: true
   },
   {
-    id: 'gpt-5-6-terra-thinking',
+    id: 'model-a-thinking',
     object: 'model',
-    created: 1700000000,
+    created: 1,
     owned_by: 'perplexity',
-    label: 'GPT-5.6 Terra Thinking',
-    description: 'Versatile model',
-    subscription_tier: 'pro',
     mode: 'reasoning',
-    base_model_id: 'gpt-5-6-terra',
-    thinking_model_id: 'gpt-5-6-terra-thinking',
-    supports_thinking: true,
-    thinking: true,
-    thinking_only: false
+    base_model_id: 'model-a',
+    thinking: true
+  },
+  {
+    id: 'model-b',
+    object: 'model',
+    created: 1,
+    owned_by: 'perplexity',
+    base_model_id: 'model-b',
+    supports_thinking: false
   }
 ]
+let records: Record<string, ChatJob>
+let history: Record<string, ChatMessage[]>
+let listeners: Record<string, (event: JobEvent) => void>
+let fullListeners: Record<string, (job: ChatJob) => void>
+let signals: Record<string, AbortSignal>
+let clock: number
+const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value))
 
-function streamChunk(
-  content?: string,
-  progress?: PerplexityProgress
-): ChatCompletionChunk {
-  return {
-    id: 'chatcmpl-test',
-    object: 'chat.completion.chunk',
-    created: 1,
-    model: 'perplexity-search',
-    choices: [
-      {
-        index: 0,
-        delta: content ? { content } : {},
-        finish_reason: null
-      }
-    ],
-    ...(progress ? { perplexity_progress: progress } : {})
+function finish(id: string, state: 'completed' | 'failed' = 'completed') {
+  const old = records[id]
+  const job: ChatJob = {
+    ...old,
+    seq: old.seq + 1,
+    state,
+    updated_at: ++clock,
+    error:
+      state === 'failed'
+        ? { code: 'upstream_failed', message: 'Upstream interrupted' }
+        : null,
+    snapshot: {
+      answer:
+        state === 'completed'
+          ? `${old.session_id} final`
+          : `${old.session_id} partial`,
+      progress: [
+        {
+          id: 'p',
+          stage: 'final',
+          label: 'Writing answer',
+          status: state === 'completed' ? 'completed' : 'failed'
+        }
+      ]
+    }
   }
+  records[id] = job
+  if (state === 'completed')
+    history[job.session_id] = [
+      ...(history[job.session_id] || []),
+      { id: 1, job_id: id, role: 'user', content: job.user_content || '' },
+      { id: 2, job_id: id, role: 'assistant', content: job.snapshot!.answer! }
+    ]
+  listeners[id]?.({ type: 'terminal', seq: job.seq, job: clone(job) })
+  fullListeners[id]?.(clone(job))
 }
 
-describe('useChat cancellation', () => {
-  beforeEach(() => {
-    vi.mocked(fetchOAIModels).mockResolvedValue({
-      object: 'list',
-      data: modelCatalog
-    })
-    vi.mocked(createWebUISession).mockResolvedValue(session)
-    vi.mocked(listWebUISessions).mockResolvedValue({
-      object: 'list',
-      data: [session]
-    })
-    vi.mocked(getWebUISession).mockResolvedValue({ ...session, messages: [] })
+beforeEach(() => {
+  localStorage.clear()
+  vi.resetAllMocks()
+  records = {}
+  history = {}
+  listeners = {}
+  fullListeners = {}
+  signals = {}
+  clock = 10
+  vi.mocked(api.fetchOAIModels).mockResolvedValue({
+    object: 'list',
+    data: models
   })
-
-  afterEach(() => {
-    localStorage.clear()
-    vi.clearAllMocks()
+  vi.mocked(api.listWebUISessions).mockResolvedValue({
+    object: 'list',
+    data: [a, b]
   })
-
-  it('passes an abort signal to the stream and stops without showing an error', async () => {
-    let requestSignal: AbortSignal | undefined
-    vi.mocked(webuiChatCompletionStream).mockImplementation(
-      (_request, _apiToken, signal) => {
-        requestSignal = signal
-        return (async function* () {
-          yield streamChunk(undefined, {
-            id: 'progress-1',
-            stage: 'search_web',
-            status: 'running',
-            label: 'Searching the web'
-          })
-          await new Promise<void>((_resolve, reject) => {
-            signal?.addEventListener(
-              'abort',
-              () =>
-                reject(
-                  new DOMException('The operation was aborted', 'AbortError')
-                ),
-              { once: true }
-            )
-          })
-        })()
-      }
+  vi.mocked(api.createWebUISession).mockResolvedValue(b)
+  vi.mocked(api.getWebUISession).mockImplementation(async (id) => ({
+    ...session(id),
+    messages: history[id] || [],
+    latest_job: clone(
+      Object.values(records).find((job) => job.session_id === id) || null
     )
+  }))
+  vi.mocked(tasks.listJobs).mockImplementation(async () =>
+    Object.values(records).map(clone)
+  )
+  vi.mocked(tasks.getJob).mockImplementation(async (id) => clone(records[id]))
+  vi.mocked(tasks.submitJob).mockImplementation(async (request) => {
+    const id = 'job-' + request.session_id
+    const job: ChatJob = {
+      id,
+      job_id: id,
+      session_id: request.session_id,
+      account_id: 'one-account',
+      model: request.model,
+      state: 'running',
+      seq: 1,
+      created_at: ++clock,
+      updated_at: clock,
+      user_content: request.messages[0].content,
+      snapshot: { answer: request.session_id + ' partial' }
+    }
+    records[id] = job
+    return clone(job)
+  })
+  vi.mocked(tasks.jobEvents).mockImplementation(
+    async function* (id, token, signal) {
+      signals[id] = signal
+      yield { type: 'snapshot', seq: records[id].seq, job: clone(records[id]) }
+      while (!signal.aborted) {
+        const event = await new Promise<JobEvent>((resolve, reject) => {
+          const abort = () => reject(new DOMException('Aborted', 'AbortError'))
+          signal.addEventListener('abort', abort, { once: true })
+          listeners[id] = (event) => {
+            signal.removeEventListener('abort', abort)
+            resolve(event)
+          }
+        })
+        yield event
+        if (event.type === 'terminal') return
+      }
+    }
+  )
+  vi.mocked(tasks.waitJobResult).mockImplementation(
+    (id, token, signal) =>
+      new Promise((resolve, reject) => {
+        fullListeners[id] = resolve
+        signal?.addEventListener(
+          'abort',
+          () => reject(new DOMException('Aborted', 'AbortError')),
+          { once: true }
+        )
+      })
+  )
+  vi.mocked(tasks.cancelJob).mockImplementation(async (id) => {
+    const job: ChatJob = {
+      ...records[id],
+      seq: records[id].seq + 1,
+      state: 'cancelled',
+      updated_at: ++clock
+    }
+    records[id] = job
+    listeners[id]?.({ type: 'terminal', seq: job.seq, job: clone(job) })
+    fullListeners[id]?.(clone(job))
+    return clone(job)
+  })
+  vi.mocked(tasks.uploadAttachment).mockResolvedValue('file-one')
+})
+afterEach(() => {
+  localStorage.clear()
+})
 
-    const { result } = renderHook(() => useChat())
-    act(() => result.current.saveApiToken('test-token'))
+async function connect(
+  hook: ReturnType<typeof renderHook<ReturnType<typeof useChat>, unknown>>
+) {
+  act(() => hook.result.current.saveApiToken('unit-token'))
+  await act(async () => hook.result.current.loadModels())
+  await waitFor(() => {
+    expect(hook.result.current.activeSessionId).toBe(a.id)
+    expect(hook.result.current.isSessionLoading).toBe(false)
+  })
+}
 
-    let sendPromise!: Promise<void>
+describe('server-owned multi-session tasks', () => {
+  it('switches from A to B without cancellation and stops B independently', async () => {
+    const hook = renderHook(() => useChat())
+    await connect(hook)
+    await act(async () => hook.result.current.sendMessage('question A'))
+    await waitFor(() =>
+      expect(hook.result.current.messages.at(-1)?.content).toBe(
+        'session-a partial'
+      )
+    )
+    await act(async () => hook.result.current.selectSession(b.id))
+    expect(tasks.cancelJob).not.toHaveBeenCalled()
+    expect(signals['job-session-a'].aborted).toBe(true)
+    expect(hook.result.current.isLoading).toBe(false)
+    await act(async () => hook.result.current.sendMessage('question B'))
+    await waitFor(() =>
+      expect(hook.result.current.messages.at(-1)?.content).toBe(
+        'session-b partial'
+      )
+    )
+    await act(async () => hook.result.current.stopStreaming())
+    expect(tasks.cancelJob).toHaveBeenCalledWith('job-session-b', 'unit-token')
+    expect(records['job-session-a'].state).toBe('running')
+    await act(async () => hook.result.current.selectSession(a.id))
+    await waitFor(() =>
+      expect(hook.result.current.messages.at(-1)?.content).toBe(
+        'session-a partial'
+      )
+    )
+    act(() => finish('job-session-a'))
+    await waitFor(() =>
+      expect(hook.result.current.messages.at(-1)?.content).toBe(
+        'session-a final'
+      )
+    )
+    expect(tasks.submitJob).toHaveBeenCalledTimes(2)
+    expect(hook.result.current.messages).toHaveLength(2)
+    hook.unmount()
+  })
+
+  it('recovers a task after remount without a second submission', async () => {
+    const first = renderHook(() => useChat())
+    await connect(first)
+    await act(async () => first.result.current.sendMessage('question'))
+    await waitFor(() =>
+      expect(first.result.current.messages.at(-1)?.content).toBe(
+        'session-a partial'
+      )
+    )
+    first.unmount()
+    expect(tasks.cancelJob).not.toHaveBeenCalled()
+    const second = renderHook(() => useChat())
+    await act(async () => second.result.current.loadModels())
+    await waitFor(() =>
+      expect(second.result.current.messages.at(-1)?.content).toBe(
+        'session-a partial'
+      )
+    )
+    act(() => finish('job-session-a'))
+    await waitFor(() =>
+      expect(second.result.current.messages.at(-1)?.content).toBe(
+        'session-a final'
+      )
+    )
+    expect(tasks.submitJob).toHaveBeenCalledOnce()
+    second.unmount()
+  })
+
+  it('keeps drafts, model parameters and attachments per session', async () => {
+    const hook = renderHook(() => useChat())
+    await connect(hook)
     act(() => {
-      sendPromise = result.current.sendMessage('hello')
+      hook.result.current.setDraft('draft A')
+      hook.result.current.addFiles([new File(['x'], 'a.txt')])
+      hook.result.current.setThinking(true)
     })
+    await act(async () => hook.result.current.selectSession(b.id))
+    act(() => {
+      hook.result.current.setDraft('draft B')
+      hook.result.current.setSelectedModel('model-b')
+      hook.result.current.setStreamEnabled(false)
+    })
+    expect(hook.result.current.pendingFiles).toHaveLength(0)
+    await act(async () => hook.result.current.selectSession(a.id))
+    expect(hook.result.current.draft).toBe('draft A')
+    expect(hook.result.current.selectedModel).toBe('model-a')
+    expect(hook.result.current.thinking).toBe(true)
+    expect(hook.result.current.streamEnabled).toBe(true)
+    expect(hook.result.current.pendingFiles[0].name).toBe('a.txt')
+    hook.unmount()
+  })
 
+  it('uses the complete result observer without showing intermediate text', async () => {
+    const hook = renderHook(() => useChat())
+    await connect(hook)
+    act(() => hook.result.current.setStreamEnabled(false))
+    await act(async () => hook.result.current.sendMessage('full question'))
+    await waitFor(() => expect(tasks.waitJobResult).toHaveBeenCalledOnce())
+    expect(hook.result.current.messages.at(-1)?.content).toBe('')
+    expect(tasks.jobEvents).not.toHaveBeenCalled()
+    act(() => finish('job-session-a'))
     await waitFor(() =>
-      expect(webuiChatCompletionStream).toHaveBeenCalledOnce()
-    )
-    await waitFor(() =>
-      expect(result.current.messages.at(-1)?.progress?.[0].status).toBe(
-        'running'
+      expect(hook.result.current.messages.at(-1)?.content).toBe(
+        'session-a final'
       )
     )
-    act(() => result.current.stopStreaming())
-    await act(async () => {
-      await sendPromise
-    })
+    expect(hook.result.current.isLoading).toBe(false)
+    hook.unmount()
+  })
 
-    expect(requestSignal?.aborted).toBe(true)
-    expect(result.current.isLoading).toBe(false)
-    expect(result.current.isStreaming).toBe(false)
-    expect(result.current.error).toBeNull()
-    expect(result.current.messages.at(-1)?.progress?.[0].status).toBe(
-      'cancelled'
-    )
-    expect(
-      result.current.messages.some(
-        (message) =>
-          message.role === 'assistant' &&
-          typeof message.content === 'string' &&
-          message.content.startsWith('Error:')
+  it('shows a failed task with its partial answer and terminal progress', async () => {
+    const hook = renderHook(() => useChat())
+    await connect(hook)
+    await act(async () => hook.result.current.sendMessage('question'))
+    await waitFor(() => expect(listeners['job-session-a']).toBeDefined())
+    act(() => finish('job-session-a', 'failed'))
+    await waitFor(() =>
+      expect(hook.result.current.messages.at(-1)?.error).toBe(
+        'Upstream interrupted'
       )
-    ).toBe(false)
-  })
-
-  it('stores progress updates alongside streamed answer content', async () => {
-    vi.mocked(webuiChatCompletionStream).mockImplementation(() =>
-      (async function* () {
-        yield streamChunk(undefined, {
-          id: 'progress-1',
-          stage: 'search_web',
-          status: 'running',
-          label: 'Searching the web',
-          detail: { queries: ['glass frog transparency'], query_count: 1 }
-        })
-        yield streamChunk(undefined, {
-          id: 'progress-1',
-          stage: 'search_web',
-          status: 'completed',
-          label: 'Searching the web',
-          detail: { queries: ['glass frog transparency'], query_count: 1 }
-        })
-        yield streamChunk(undefined, {
-          id: 'progress-2',
-          stage: 'final',
-          status: 'running',
-          label: 'Writing answer'
-        })
-        yield streamChunk('complete answer')
-        yield streamChunk(undefined, {
-          id: 'progress-2',
-          stage: 'final',
-          status: 'completed',
-          label: 'Writing answer'
-        })
-      })()
     )
-
-    const { result } = renderHook(() => useChat())
-    act(() => result.current.saveApiToken('test-token'))
-    await act(async () => {
-      await result.current.sendMessage('hello')
-    })
-
-    const assistant = result.current.messages.at(-1)
-    expect(assistant?.content).toBe('complete answer')
-    expect(assistant?.progress).toEqual([
-      {
-        id: 'progress-1',
-        stage: 'search_web',
-        status: 'completed',
-        label: 'Searching the web',
-        detail: { queries: ['glass frog transparency'], query_count: 1 }
-      },
-      {
-        id: 'progress-2',
-        stage: 'final',
-        status: 'completed',
-        label: 'Writing answer'
-      }
-    ])
-  })
-
-  it('keeps partial content and marks active progress failed on stream errors', async () => {
-    vi.mocked(webuiChatCompletionStream).mockImplementation(() =>
-      (async function* () {
-        yield streamChunk(undefined, {
-          id: 'progress-1',
-          stage: 'search_web',
-          status: 'running',
-          label: 'Searching the web'
-        })
-        yield streamChunk('partial answer')
-        throw new Error('upstream interrupted')
-      })()
+    expect(hook.result.current.messages.at(-1)?.content).toBe(
+      'session-a partial'
     )
+    expect(hook.result.current.messages.at(-1)?.progress?.[0].status).toBe(
+      'failed'
+    )
+    expect(hook.result.current.isLoading).toBe(false)
+    hook.unmount()
+  })
 
-    const { result } = renderHook(() => useChat())
-    act(() => result.current.saveApiToken('test-token'))
+  it('does not cancel an accepted submission when the page closes before its receipt', async () => {
+    const submit = vi.mocked(tasks.submitJob).getMockImplementation()!
+    let release!: () => void
+    const receipt = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    vi.mocked(tasks.submitJob).mockImplementation(async (...args) => {
+      const job = await submit(...args)
+      await receipt
+      return job
+    })
+    const hook = renderHook(() => useChat())
+    await connect(hook)
+    let sending!: Promise<void>
+    act(() => {
+      sending = hook.result.current.sendMessage('detached')
+    })
+    await waitFor(() => expect(tasks.submitJob).toHaveBeenCalledOnce())
+    hook.unmount()
+    release()
+    await sending
+    expect(tasks.cancelJob).not.toHaveBeenCalled()
+    expect(records['job-session-a'].state).toBe('running')
+  })
+
+  it('honors an explicit Stop issued before the submission receipt', async () => {
+    const submit = vi.mocked(tasks.submitJob).getMockImplementation()!
+    let release!: () => void
+    const receipt = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    vi.mocked(tasks.submitJob).mockImplementation(async (...args) => {
+      const job = await submit(...args)
+      await receipt
+      return job
+    })
+    const hook = renderHook(() => useChat())
+    await connect(hook)
+    let sending!: Promise<void>
+    act(() => {
+      sending = hook.result.current.sendMessage('stop this')
+    })
+    await waitFor(() => expect(tasks.submitJob).toHaveBeenCalledOnce())
+    await act(async () => hook.result.current.stopStreaming())
     await act(async () => {
-      await result.current.sendMessage('hello')
+      release()
+      await sending
     })
-
-    const assistant = result.current.messages.at(-1)
-    expect(assistant?.content).toBe('partial answer')
-    expect(assistant?.error).toBe('upstream interrupted')
-    expect(assistant?.progress?.[0].status).toBe('failed')
-    expect(result.current.error).toBe('upstream interrupted')
+    expect(tasks.cancelJob).toHaveBeenCalledWith('job-session-a', 'unit-token')
+    expect(records['job-session-a'].state).toBe('cancelled')
+    hook.unmount()
   })
 
-  it('uses the complete response API when streaming is disabled', async () => {
-    vi.mocked(webuiChatCompletion).mockResolvedValue({
-      id: 'chatcmpl-test',
-      object: 'chat.completion',
-      created: 1,
-      model: 'perplexity-search',
-      choices: [
-        {
-          index: 0,
-          message: { role: 'assistant', content: 'complete answer' },
-          finish_reason: 'stop'
-        }
-      ]
-    })
-
-    const { result } = renderHook(() => useChat())
-    act(() => result.current.saveApiToken('test-token'))
-    act(() => result.current.setStreamEnabled(false))
-    await act(async () => {
-      await result.current.sendMessage('hello')
-    })
-
-    expect(webuiChatCompletion).toHaveBeenCalledOnce()
-    expect(webuiChatCompletionStream).not.toHaveBeenCalled()
-    expect(result.current.messages.at(-1)?.content).toBe('complete answer')
+  it('reuses the request key and uploaded attachment after a lost response', async () => {
+    const hook = renderHook(() => useChat())
+    await connect(hook)
+    act(() => hook.result.current.addFiles([new File(['x'], 'a.txt')]))
+    vi.mocked(tasks.submitJob).mockRejectedValueOnce(
+      new TypeError('Network lost')
+    )
+    await act(async () => hook.result.current.sendMessage('retry this'))
+    expect(hook.result.current.error).toBe('Network lost')
+    await act(async () => hook.result.current.sendMessage('retry this'))
+    expect(tasks.submitJob).toHaveBeenCalledTimes(2)
+    expect(vi.mocked(tasks.submitJob).mock.calls[0]).toEqual(
+      vi.mocked(tasks.submitJob).mock.calls[1]
+    )
+    expect(tasks.uploadAttachment).toHaveBeenCalledOnce()
+    hook.unmount()
   })
 
-  it('sends only the current turn with the active session id', async () => {
-    vi.mocked(webuiChatCompletion).mockResolvedValue({
-      id: 'chatcmpl-test',
-      object: 'chat.completion',
-      created: 1,
-      model: 'perplexity-search',
-      choices: [
-        {
-          index: 0,
-          message: { role: 'assistant', content: 'answer' },
-          finish_reason: 'stop'
-        }
-      ]
-    })
-
-    const { result } = renderHook(() => useChat())
-    act(() => result.current.saveApiToken('test-token'))
-    act(() => result.current.setStreamEnabled(false))
-    await act(async () => result.current.sendMessage('first'))
-    await act(async () => result.current.sendMessage('second'))
-
-    const secondRequest = vi.mocked(webuiChatCompletion).mock.calls[1][0]
-    expect(secondRequest.session_id).toBe(session.id)
-    expect(secondRequest.messages).toEqual([
-      { role: 'user', content: 'second' }
-    ])
-  })
-
-  it('restores an effective thinking model as base id plus thinking flag', async () => {
-    vi.mocked(getWebUISession).mockResolvedValue({
-      ...session,
-      model: 'gpt-5-6-terra-thinking',
+  it('restores an effective thinking model as its base plus thinking flag', async () => {
+    vi.mocked(api.getWebUISession).mockResolvedValue({
+      ...a,
+      model: 'model-a-thinking',
       messages: []
     })
-    vi.mocked(webuiChatCompletion).mockResolvedValue({
-      id: 'chatcmpl-test',
-      object: 'chat.completion',
-      created: 1,
-      model: 'gpt-5-6-terra-thinking',
-      choices: [
-        {
-          index: 0,
-          message: { role: 'assistant', content: 'reasoned answer' },
-          finish_reason: 'stop'
-        }
-      ]
-    })
-
-    const { result } = renderHook(() => useChat())
-    act(() => result.current.saveApiToken('test-token'))
-    await act(async () => result.current.loadModels())
-    await waitFor(() => expect(result.current.activeSessionId).toBe(session.id))
-
-    expect(result.current.selectedModel).toBe('gpt-5-6-terra')
-    expect(result.current.thinking).toBe(true)
-    expect(localStorage.getItem('oai_selected_model')).toBe('gpt-5-6-terra')
-    expect(localStorage.getItem('oai_thinking')).toBe('true')
-
-    act(() => result.current.setStreamEnabled(false))
-    await act(async () => result.current.sendMessage('follow up'))
-
-    expect(vi.mocked(webuiChatCompletion).mock.calls[0][0]).toMatchObject({
-      model: 'gpt-5-6-terra',
-      thinking: true
-    })
-  })
-
-  it('restores the remembered session and keeps histories isolated when switching', async () => {
-    const other: ChatSession = {
-      ...session,
-      id: 'sess_00000000000000000000000000000002',
-      title: 'Other chat',
-      updated_at: 2
-    }
-    localStorage.setItem('webui_active_session_id', other.id)
-    vi.mocked(listWebUISessions).mockResolvedValue({
-      object: 'list',
-      data: [other, session]
-    })
-    vi.mocked(getWebUISession).mockImplementation(async (sessionId) => ({
-      ...(sessionId === other.id ? other : session),
-      messages: [
-        {
-          role: 'assistant',
-          content: sessionId === other.id ? 'other history' : 'first history'
-        }
-      ]
-    }))
-
-    const { result } = renderHook(() => useChat())
-    act(() => result.current.saveApiToken('test-token'))
-    localStorage.setItem('webui_active_session_id', other.id)
-    await act(async () => result.current.loadSessions())
-
-    expect(result.current.activeSessionId).toBe(other.id)
-    expect(result.current.messages[0].content).toBe('other history')
-
-    await act(async () => result.current.selectSession(session.id))
-    expect(result.current.activeSessionId).toBe(session.id)
-    expect(result.current.messages[0].content).toBe('first history')
-  })
-
-  it('updates the sidebar with the account returned by a committed stream', async () => {
-    const committed = {
-      ...session,
-      title: 'hello',
-      bound_client_id: 'account-a',
-      updated_at: 3
-    }
-    vi.mocked(webuiChatCompletionStream).mockImplementation(() =>
-      (async function* () {
-        yield { ...streamChunk('answer'), webui_session: committed }
-      })()
-    )
-
-    const { result } = renderHook(() => useChat())
-    act(() => result.current.saveApiToken('test-token'))
-    await act(async () => result.current.sendMessage('hello'))
-
-    expect(result.current.activeSession?.bound_client_id).toBe('account-a')
-    expect(result.current.activeSession?.title).toBe('hello')
+    const hook = renderHook(() => useChat())
+    await connect(hook)
+    expect(hook.result.current.selectedModel).toBe('model-a')
+    expect(hook.result.current.thinking).toBe(true)
+    hook.unmount()
   })
 })

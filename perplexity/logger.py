@@ -7,6 +7,7 @@ file and console output, structured logging, and configurable log levels.
 
 import logging
 import sys
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Optional
 
@@ -39,6 +40,8 @@ def setup_logger(
     logger.setLevel(getattr(logging, level or LOG_LEVEL))
 
     # Remove existing handlers
+    for handler in logger.handlers:
+        handler.close()
     logger.handlers.clear()
 
     # Create formatter
@@ -46,7 +49,7 @@ def setup_logger(
 
     # Console handler
     if console:
-        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler = logging.StreamHandler(sys.stderr)
         console_handler.setFormatter(formatter)
         logger.addHandler(console_handler)
 
@@ -54,7 +57,7 @@ def setup_logger(
     if log_file or LOG_FILE:
         file_path = Path(log_file or LOG_FILE)
         file_path.parent.mkdir(parents=True, exist_ok=True)
-        file_handler = logging.FileHandler(file_path, encoding="utf-8")
+        file_handler = RotatingFileHandler(file_path, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8")
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
 

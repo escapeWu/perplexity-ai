@@ -38,12 +38,7 @@ def stream_delta(previous: str, current: str) -> tuple[str, str]:
         return "", previous
     if current.startswith(previous):
         return current[len(previous) :], current
-    if previous.startswith(current):
-        return "", previous
-
-    # Some upstream variants emit independent fragments instead of cumulative
-    # snapshots. Preserve those fragments as append-only content.
-    return current, previous + current
+    raise SessionChatError("Upstream revised an emitted answer", error_type="answer_revised")
 
 
 def get_or_create_session(

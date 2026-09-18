@@ -35,21 +35,32 @@ class RecordingSyncSession:
 
 
 class EmptySyncResponse:
+    status_code = 200
+    headers = {"content-type": "text/event-stream"}
+
     def iter_lines(self, delimiter: bytes):
-        return iter(())
+        assert delimiter == b"\n"
+        return iter([b"event: message", b'data: {"answer":"fixture answer"}', b"", b"event: end_of_stream", b""])
 
     def close(self) -> None:
         pass
 
 
 class EventSyncResponse:
+    status_code = 200
+    headers = {"content-type": "text/event-stream"}
+
     def __init__(self, events: list[dict[str, Any]]) -> None:
         self.events = events
 
     def iter_lines(self, delimiter: bytes):
-        del delimiter
+        assert delimiter == b"\n"
         for event in self.events:
-            yield f"event: message\r\ndata: {json.dumps(event)}".encode()
+            yield b"event: message"
+            yield f"data: {json.dumps(event)}".encode()
+            yield b""
+        yield b"event: end_of_stream"
+        yield b""
 
     def close(self) -> None:
         pass
@@ -59,6 +70,12 @@ class JsonResponse:
     def __init__(self, payload: dict[str, Any], ok: bool = True) -> None:
         self.payload = payload
         self.ok = ok
+        self.status_code = 200 if ok else 500
+        self.headers = {"content-type": "application/json"}
+
+    def raise_for_status(self):
+        if not self.ok:
+            raise RuntimeError("Upload HTTP error")
 
     def json(self) -> dict[str, Any]:
         return self.payload
@@ -180,6 +197,9 @@ def test_sync_client_accumulates_new_and_prior_follow_up_attachments(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class DummyMime:
+        def close(self):
+            pass
+
         def addpart(self, *args: Any, **kwargs: Any) -> None:
             pass
 
@@ -287,6 +307,7 @@ def test_sync_client_marks_and_logs_silent_model_downgrade(
                     "display_model": "turbo",
                     "user_selected_model": "grok46medium",
                     "status": "COMPLETED",
+                    "answer": "ok",
                 }
             ]
         )
@@ -314,6 +335,7 @@ def test_sync_client_marks_and_logs_silent_model_downgrade(
             "display_model": "turbo",
             "user_selected_model": "grok46medium",
             "status": "COMPLETED",
+            "answer": "ok",
             "model_downgraded": True,
             "requested_model": "grok46medium",
             "effective_model": "turbo",

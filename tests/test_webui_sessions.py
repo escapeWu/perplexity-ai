@@ -146,7 +146,7 @@ def test_commit_turn_persists_safe_history_cursor_and_generated_title(tmp_path: 
     }
 
     messages = store.get_messages(session.id)
-    assert messages == [
+    assert [{key: value for key, value in message.items() if key != "id"} for message in messages] == [
         {
             "role": "user",
             "content": [

@@ -1,4 +1,4 @@
-const API_BASE = window.location.origin
+export const API_BASE = window.location.origin
 
 export interface PoolStatus {
   total: number
@@ -251,6 +251,7 @@ export interface InputFilePart {
   type: 'input_file'
   filename: string
   file_data?: string
+  file_id?: string
 }
 
 export type ProgressStatus = 'running' | 'completed' | 'failed' | 'cancelled'
@@ -270,6 +271,8 @@ export interface PerplexityProgress {
 }
 
 export interface ChatMessage {
+  id?: number
+  job_id?: string
   role: 'system' | 'user' | 'assistant'
   content: string | Array<TextPart | InputFilePart>
   sources?: Source[]
@@ -289,6 +292,47 @@ export interface ChatCompletionRequest {
   }
 }
 
+export type JobState =
+  | 'queued'
+  | 'running'
+  | 'cancelling'
+  | 'completed'
+  | 'failed'
+  | 'timed_out'
+  | 'cancelled'
+  | 'interrupted'
+
+export interface JobSnapshot {
+  answer?: string
+  sources?: Source[]
+  progress?: PerplexityProgress[]
+  session?: ChatSession
+}
+
+export interface ChatJob {
+  id: string
+  job_id: string
+  session_id: string
+  account_id: string | null
+  model: string
+  state: JobState
+  seq: number
+  created_at: number
+  updated_at: number
+  started_at?: number | null
+  finished_at?: number | null
+  user_content?: ChatMessage['content']
+  error?: { code: string; message: string } | null
+  snapshot?: JobSnapshot
+}
+
+export interface JobEvent {
+  type: 'snapshot' | 'delta' | 'state' | 'terminal' | 'heartbeat'
+  seq: number
+  job?: ChatJob
+  data?: JobSnapshot & { content?: string; state?: JobState }
+}
+
 export interface ChatSession {
   id: string
   title: string
@@ -296,15 +340,21 @@ export interface ChatSession {
   model: string | null
   created_at: number
   updated_at: number
+  active_job?: ChatJob | null
 }
 
 export interface ChatSessionDetail extends ChatSession {
   messages: ChatMessage[]
+  latest_job?: ChatJob | null
+  has_more?: boolean
+  next_cursor?: number | null
 }
 
 export interface ChatSessionsResponse {
   object: 'list'
   data: ChatSession[]
+  has_more?: boolean
+  next_cursor?: string | null
 }
 
 export interface WebUIChatCompletionRequest extends ChatCompletionRequest {
@@ -365,13 +415,16 @@ export async function fetchOAIModels(
   return resp.json()
 }
 
-async function parseApiError(resp: Response, fallback: string): Promise<Error> {
+export async function parseApiError(
+  resp: Response,
+  fallback: string
+): Promise<Error> {
   const body = await resp.json().catch(() => null)
   const message = body?.error?.message || body?.message || fallback
   return new Error(message)
 }
 
-function webuiHeaders(apiToken: string): Record<string, string> {
+export function webuiHeaders(apiToken: string): Record<string, string> {
   return {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${apiToken}`
@@ -379,9 +432,11 @@ function webuiHeaders(apiToken: string): Record<string, string> {
 }
 
 export async function listWebUISessions(
-  apiToken: string
+  apiToken: string,
+  before?: string | null
 ): Promise<ChatSessionsResponse> {
-  const resp = await fetch(`${API_BASE}/v1/webui/sessions`, {
+  const suffix = before ? `?before=${encodeURIComponent(before)}` : ''
+  const resp = await fetch(`${API_BASE}/v1/webui/sessions${suffix}`, {
     headers: { Authorization: `Bearer ${apiToken}` }
   })
   if (!resp.ok) {
@@ -413,10 +468,12 @@ export async function createWebUISession(
 
 export async function getWebUISession(
   sessionId: string,
-  apiToken: string
+  apiToken: string,
+  before?: number | null
 ): Promise<ChatSessionDetail> {
+  const suffix = before ? `?before=${before}` : ''
   const resp = await fetch(
-    `${API_BASE}/v1/webui/sessions/${encodeURIComponent(sessionId)}`,
+    `${API_BASE}/v1/webui/sessions/${encodeURIComponent(sessionId)}${suffix}`,
     {
       headers: { Authorization: `Bearer ${apiToken}` }
     }
@@ -582,6 +639,7 @@ async function* completionStream(
 
   const decoder = new TextDecoder()
   let buffer = ''
+  let finished = false
 
   try {
     while (true) {
@@ -596,20 +654,26 @@ async function* completionStream(
         const trimmed = line.trim()
         if (!trimmed || !trimmed.startsWith('data: ')) continue
         const data = trimmed.slice(6)
-        if (data === '[DONE]') return
+        if (data === '[DONE]') {
+          if (!finished)
+            throw new Error('Stream ended without a successful terminal state')
+          return
+        }
         let chunk: ChatCompletionChunk
         try {
           chunk = JSON.parse(data) as ChatCompletionChunk
         } catch {
-          // Skip malformed JSON chunks.
-          continue
+          throw new Error('Invalid event JSON in completion stream')
         }
         if (chunk.error?.message) {
           throw new Error(chunk.error.message)
         }
+        if (chunk.choices.some((choice) => choice.finish_reason === 'stop'))
+          finished = true
         yield chunk
       }
     }
+    throw new Error('Connection ended before the completion stream finished')
   } finally {
     try {
       await reader.cancel()

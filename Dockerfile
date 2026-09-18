@@ -55,8 +55,10 @@ COPY perplexity/ ./perplexity/
 # 从前端构建阶段复制构建产物
 COPY --from=frontend-builder /frontend/dist ./perplexity/server/web/dist
 
-# 设置默认 token pool 配置路径（通过 volume 挂载）
-ENV PPLX_TOKEN_POOL_CONFIG=/app/token_pool_config.json
+# Runtime writes require a directory mount; a legacy file is imported only once.
+ENV PPLX_TOKEN_POOL_CONFIG=/app/data/config/token_pool_config.json
+ENV PPLX_LEGACY_TOKEN_POOL_CONFIG=/app/legacy-token-pool.json
+ENV LOG_FILE=/app/data/logs/perplexity.log
 # 每日模型目录缓存（/app/data 应挂载为持久卷）
 ENV PPLX_MODEL_CACHE_PATH=/app/data/model_config_v2.json
 

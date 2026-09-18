@@ -47,7 +47,7 @@ acquire_lock() {
 
 verify() {
   compose exec -T perplexity-mcp \
-    curl -fsS http://127.0.0.1:8000/health
+    curl -fsS http://127.0.0.1:8000/ready
   printf '\n'
 }
 
@@ -72,7 +72,7 @@ Commands:
   config   Validate deployment configuration without printing resolved secrets
   build    Build the application image from the checked-out source
   up       Build, start, wait for health, verify, and print service status
-  verify   Call the container-local /health endpoint
+  verify   Call the container-local /ready endpoint
   status   Print Docker Compose service status
   logs     Print recent application logs
 EOF

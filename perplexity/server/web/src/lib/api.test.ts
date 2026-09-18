@@ -8,6 +8,9 @@ import {
   chatCompletionStream
 } from './api'
 
+const finalEvent =
+  'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n'
+
 describe('chatCompletionStream', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
@@ -54,6 +57,7 @@ describe('chatCompletionStream', () => {
         [
           'data: {"id":"chatcmpl-test","object":"chat.completion.chunk","created":1,"model":"perplexity-search","choices":[{"index":0,"delta":{},"finish_reason":null}],"perplexity_progress":{"id":"progress-1","stage":"search_web","status":"running","label":"Searching the web"}}',
           '',
+          finalEvent,
           'data: [DONE]',
           ''
         ].join('\n')
@@ -76,6 +80,8 @@ describe('chatCompletionStream', () => {
     )
 
     const first = await stream.next()
+    const final = await stream.next()
+    expect(final.value?.choices[0].finish_reason).toBe('stop')
     const done = await stream.next()
 
     expect(first.value?.perplexity_progress).toEqual({
@@ -134,9 +140,13 @@ describe('chatCompletionStream', () => {
     const donePromise = stream.next()
     finishRead({
       done: false,
-      value: new TextEncoder().encode('data: [DONE]\n\n')
+      value: new TextEncoder().encode(finalEvent + 'data: [DONE]\n\n')
     })
-    await expect(donePromise).resolves.toEqual({ value: undefined, done: true })
+    expect((await donePromise).value?.choices[0].finish_reason).toBe('stop')
+    await expect(stream.next()).resolves.toEqual({
+      value: undefined,
+      done: true
+    })
     expect(cancel).toHaveBeenCalledOnce()
     expect(releaseLock).toHaveBeenCalledOnce()
   })
@@ -190,7 +200,7 @@ describe('WebUI session API', () => {
         getReader: () => ({
           read: vi.fn().mockResolvedValueOnce({
             done: false,
-            value: new TextEncoder().encode('data: [DONE]\n\n')
+            value: new TextEncoder().encode(finalEvent + 'data: [DONE]\n\n')
           }),
           cancel,
           releaseLock
@@ -207,6 +217,7 @@ describe('WebUI session API', () => {
       },
       'test-token'
     )
+    await stream.next()
     await stream.next()
 
     const body = JSON.parse(fetchMock.mock.calls[0][1].body)

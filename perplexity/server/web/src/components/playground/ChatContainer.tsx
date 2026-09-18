@@ -8,13 +8,29 @@ interface ChatContainerProps {
   isLoading?: boolean
 }
 
-export function ChatContainer({ messages, isStreaming, isLoading }: ChatContainerProps) {
+export function ChatContainer({
+  messages,
+  isStreaming,
+  isLoading
+}: ChatContainerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const nearBottom = useRef(true)
+  const previous = useRef({ first: messages[0]?.id, height: 0 })
 
-  // Auto-scroll to bottom when new messages arrive or content updates
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    const container = containerRef.current
+    if (!container) return
+    const first = messages[0]?.id
+    const prepended =
+      first !== undefined &&
+      previous.current.first !== undefined &&
+      first < previous.current.first
+    if (prepended)
+      container.scrollTop += container.scrollHeight - previous.current.height
+    else if (nearBottom.current)
+      bottomRef.current?.scrollIntoView({ behavior: 'auto' })
+    previous.current = { first, height: container.scrollHeight }
   }, [messages, isStreaming])
 
   if (messages.length === 0) {
@@ -31,12 +47,28 @@ export function ChatContainer({ messages, isStreaming, isLoading }: ChatContaine
   }
 
   return (
-    <div ref={containerRef} className="flex-1 overflow-y-auto p-4 min-h-0 scrollbar-hidden">
+    <div
+      ref={containerRef}
+      onScroll={() => {
+        const container = containerRef.current
+        if (container)
+          nearBottom.current =
+            container.scrollHeight -
+              container.scrollTop -
+              container.clientHeight <
+            100
+      }}
+      className="flex-1 overflow-y-auto p-4 min-h-0 scrollbar-hidden"
+    >
       {messages.map((msg, idx) => (
         <ChatMessage
-          key={idx}
+          key={msg.id ?? `${msg.job_id || idx}-${msg.role}`}
           message={msg}
-          isStreaming={isStreaming && idx === messages.length - 1 && msg.role === 'assistant'}
+          isStreaming={
+            isStreaming &&
+            idx === messages.length - 1 &&
+            msg.role === 'assistant'
+          }
         />
       ))}
       {isLoading && !isStreaming && (

@@ -33,7 +33,13 @@ export function Playground() {
     sendMessage,
     addFiles,
     removeFile,
-    stopStreaming
+    stopStreaming,
+    draft,
+    setDraft,
+    hasMoreSessions,
+    loadMoreSessions,
+    hasOlderMessages,
+    loadOlderMessages
   } = useChat()
 
   const [isHeaderVisible, setIsHeaderVisible] = useState(true)
@@ -52,7 +58,9 @@ export function Playground() {
       sessions={sessions}
       activeSessionId={activeSessionId}
       connected={isConnected}
-      disabled={isBusy}
+      disabled={isSessionLoading}
+      hasMore={hasMoreSessions}
+      onLoadMore={() => void loadMoreSessions()}
       onNew={() => void createSession()}
       onSelect={(sessionId) => void selectSession(sessionId)}
       onRename={renameSession}
@@ -158,7 +166,18 @@ export function Playground() {
         )}
 
         <main className="mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col">
+          {hasOlderMessages && (
+            <button
+              type="button"
+              onClick={() => void loadOlderMessages()}
+              disabled={isSessionLoading}
+              className="shrink-0 py-2 text-xs text-neon-blue disabled:opacity-40"
+            >
+              Load earlier messages
+            </button>
+          )}
           <ChatContainer
+            key={activeSessionId}
             messages={messages}
             isStreaming={isStreaming}
             isLoading={isLoading}
@@ -167,6 +186,8 @@ export function Playground() {
           <div className="shrink-0">
             <ChatInput
               onSend={sendMessage}
+              draft={draft}
+              onDraftChange={setDraft}
               disabled={!isConnected || isBusy}
               placeholder={
                 !isConnected

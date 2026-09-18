@@ -11,6 +11,8 @@ interface SessionSidebarProps {
   onRename: (sessionId: string, title: string) => Promise<boolean>
   onDelete: (sessionId: string) => void
   onClose?: () => void
+  hasMore?: boolean
+  onLoadMore?: () => void
 }
 
 function updatedLabel(timestamp: number): string {
@@ -31,7 +33,9 @@ export function SessionSidebar({
   onSelect,
   onRename,
   onDelete,
-  onClose
+  onClose,
+  hasMore,
+  onLoadMore
 }: SessionSidebarProps) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [title, setTitle] = useState('')
@@ -154,6 +158,14 @@ export function SessionSidebar({
                     </span>
                     <span className="mt-1 flex items-center gap-2 font-mono text-[10px] uppercase text-gray-500">
                       <span>{updatedLabel(session.updated_at)}</span>
+                      {session.active_job && (
+                        <span
+                          className="text-neon-blue"
+                          aria-label={`Task ${session.active_job.state}`}
+                        >
+                          {session.active_job.state}
+                        </span>
+                      )}
                       {session.bound_client_id && (
                         <span
                           className="max-w-[125px] truncate text-acid/70"
@@ -178,7 +190,12 @@ export function SessionSidebar({
                     <button
                       type="button"
                       onClick={() => requestDelete(session)}
-                      disabled={disabled}
+                      disabled={
+                        disabled ||
+                        ['queued', 'running', 'cancelling'].includes(
+                          session.active_job?.state || ''
+                        )
+                      }
                       className="grid size-7 place-items-center border border-gray-700 bg-void text-xs text-gray-400 hover:border-danger hover:text-danger disabled:opacity-40"
                       aria-label={`Delete ${session.title}`}
                       title="Delete"
@@ -191,11 +208,20 @@ export function SessionSidebar({
             </div>
           )
         })}
+        {hasMore && (
+          <button
+            type="button"
+            onClick={onLoadMore}
+            className="w-full py-3 text-xs text-neon-blue"
+          >
+            Load more conversations
+          </button>
+        )}
       </div>
 
       <div className="border-t border-gray-800 px-4 py-3 font-mono text-[10px] leading-relaxed text-gray-500">
-        A conversation locks to one account after its first send. Start a new
-        one to use a different account.
+        Multiple conversations can run on the same account. Switching
+        conversations keeps their tasks running.
       </div>
     </aside>
   )

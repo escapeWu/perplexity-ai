@@ -7,6 +7,7 @@ Supports heartbeat testing to automatically verify token health.
 
 import asyncio
 import json
+import math
 import os
 import pathlib
 import threading
@@ -19,7 +20,16 @@ from ..config import SOCKS_PROXY
 from ..logger import get_logger
 from ..model_registry import account_supports_tier, normalize_subscription_tier
 
+from .config_store import write_config
+
 logger = get_logger("server.client_pool")
+
+CONCURRENCY_DEFAULTS = {
+    "max_concurrency": 8, "research_concurrency": 2, "start_rate": 1.0, "burst": 2,
+    "max_queued": 16, "global_max_running": 32, "global_max_queued": 64,
+    "queue_timeout": 120,
+}
+
 
 
 class ClientWrapper:
@@ -47,6 +57,13 @@ class ClientWrapper:
         self.enabled = True  # Whether this client is enabled for use
         self.state = "unknown"  # Token state: "normal", "offline", "downgrade", "unknown"
         self.last_heartbeat: Optional[float] = None  # Last heartbeat check timestamp
+        self.in_flight = 0
+        self.queued = 0
+        self.research_running = 0
+        self.start_tokens = 2.0
+        self.tokens_at = time.monotonic()
+        self.rate_available_after = 0.0
+        self.concurrency = {}
         self.subscription_tier = normalize_subscription_tier(
             getattr(client, "subscription_tier", None),
             own_account=bool(getattr(client, "own", False)),
@@ -109,6 +126,9 @@ class ClientWrapper:
             "weight": self.weight,
             "pro_fail_count": self.pro_fail_count,
             "subscription_tier": self.subscription_tier,
+            "in_flight": self.in_flight,
+            "queued": self.queued,
+            "rate_cooldown_seconds": max(0, self.rate_available_after - time.monotonic()),
         }
 
     def get_user_info(self) -> Dict[str, Any]:
@@ -143,7 +163,10 @@ class ClientPool:
         self.clients: Dict[str, ClientWrapper] = {}
         self._rotation_order: List[str] = []
         self._index = 0
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
+        self._config_write_lock = threading.Lock()
+        self._extra_config = {}
+        self._concurrency_config = CONCURRENCY_DEFAULTS.copy()
         self._mode = "anonymous"
 
         # Heartbeat configuration
@@ -174,6 +197,8 @@ class ClientPool:
             "file_upload": _FILE_UPLOAD_TIMEOUT_DEFAULT,
         }
         self._heartbeat_task: Optional[asyncio.Task] = None
+        self._heartbeat_tasks = set()
+        self._event_loop = None
         self._config_path: Optional[str] = None
 
         # Load initial clients from config or environment
@@ -188,6 +213,12 @@ class ClientPool:
 
         # Priority 2: Environment variable pointing to config
         env_config_path = os.getenv("PPLX_TOKEN_POOL_CONFIG")
+        legacy_path = os.getenv("PPLX_LEGACY_TOKEN_POOL_CONFIG")
+        if env_config_path and legacy_path and not os.path.exists(env_config_path) and os.path.isfile(legacy_path):
+            from .config_store import write_config
+            with open(legacy_path, encoding="utf-8") as source:
+                legacy_config = json.load(source)
+            write_config(env_config_path, legacy_config, only_if_missing=True)
         if env_config_path and os.path.exists(env_config_path):
             self._load_from_config(env_config_path)
             return
@@ -226,6 +257,8 @@ class ClientPool:
         self._config_path = config_path
         with open(config_path, "r", encoding="utf-8") as f:
             config = json.load(f)
+        self._extra_config = dict(config)
+        self._concurrency_config = self._validate_concurrency(config.get("concurrency", {}))
 
         # Load heartbeat configuration if present
         heart_beat = config.get("heart_beat")
@@ -270,13 +303,16 @@ class ClientPool:
             session_token = token_entry.get("session_token")
 
             if not all([client_id, csrf_token, session_token]):
-                raise ValueError(f"Invalid token entry in config: {token_entry}")
+                raise ValueError("Invalid token entry: id, csrf_token and session_token are required")
 
             cookies = {
                 "next-auth.csrf-token": csrf_token,
                 "__Secure-next-auth.session-token": session_token,
             }
             self._add_client_internal(client_id, cookies)
+            wrapper = self.clients[client_id]
+            wrapper.enabled = token_entry.get("enabled", True)
+            wrapper.concurrency = self._validate_concurrency(token_entry.get("concurrency", {}), partial=True, account=True)
 
         self._mode = "pool"
 
@@ -312,6 +348,7 @@ class ClientPool:
         with self._lock:
             # A concurrent add may have won while the session request ran.
             if client_id in self.clients:
+                client.close()
                 return {
                     "status": "error",
                     "message": f"Client '{client_id}' already exists",
@@ -351,7 +388,11 @@ class ClientPool:
                     "message": "Cannot remove the last client. At least one client must remain.",
                 }
 
+            wrapper = self.clients[client_id]
+            if wrapper.in_flight or wrapper.queued:
+                return {"status": "error", "message": "Client has active or queued tasks"}
             del self.clients[client_id]
+            wrapper.client.close()
             self._rotation_order.remove(client_id)
 
             # Adjust index if needed
@@ -401,7 +442,8 @@ class ClientPool:
             if not wrapper:
                 return {"status": "error", "message": f"Client '{client_id}' not found"}
             wrapper.enabled = True
-            return {"status": "ok", "message": f"Client '{client_id}' enabled"}
+        self._save_config()
+        return {"status": "ok", "message": f"Client '{client_id}' enabled"}
 
     def disable_client(self, client_id: str) -> Dict[str, Any]:
         """
@@ -424,7 +466,8 @@ class ClientPool:
                 }
 
             wrapper.enabled = False
-            return {"status": "ok", "message": f"Client '{client_id}' disabled"}
+        self._save_config()
+        return {"status": "ok", "message": f"Client '{client_id}' disabled"}
 
     def reset_client(self, client_id: str) -> Dict[str, Any]:
         """
@@ -441,6 +484,7 @@ class ClientPool:
             wrapper.pro_fail_count = 0
             wrapper.available_after = 0
             wrapper.weight = ClientWrapper.DEFAULT_WEIGHT
+            wrapper.state = "unknown"
             wrapper.scheduler_current = 0
             return {"status": "ok", "message": f"Client '{client_id}' reset successfully"}
 
@@ -523,6 +567,120 @@ class ClientPool:
             ):
                 return client_id, None
             return client_id, wrapper.client
+
+    @staticmethod
+    def _validate_concurrency(values, partial=False, account=False):
+        if not isinstance(values, dict):
+            raise ValueError("concurrency must be an object")
+        result = {} if partial else CONCURRENCY_DEFAULTS.copy()
+        for key, value in values.items():
+            if account and key.startswith("global_"):
+                raise ValueError("Account settings cannot override global concurrency limits")
+            if key not in CONCURRENCY_DEFAULTS:
+                raise ValueError(f"Unknown concurrency setting: {key}")
+            if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
+                raise ValueError(f"{key} must be positive and finite")
+            maximum = 3600 if key == "queue_timeout" else 1024
+            if value > maximum or (key != "start_rate" and int(value) != value):
+                raise ValueError(f"Invalid concurrency setting: {key}")
+            result[key] = float(value) if key == "start_rate" else int(value)
+        return result
+
+    def get_concurrency_config(self, client_id=None):
+        with self._lock:
+            result = self._concurrency_config.copy()
+            if client_id in self.clients:
+                result.update(self.clients[client_id].concurrency)
+            return result
+
+    def update_concurrency(self, values, client_id=None):
+        values = self._validate_concurrency(values, partial=True, account=client_id is not None)
+        with self._lock:
+            if client_id is None:
+                self._concurrency_config.update(values)
+            elif client_id in self.clients:
+                self.clients[client_id].concurrency.update(values)
+            else:
+                raise ValueError("Unknown account")
+        self._save_config()
+        return self.get_concurrency_config(client_id)
+
+    def select_for_job(self, required_tier, mode, bound=None, *, enqueue=False):
+        with self._lock:
+            candidates = [w for w in self.clients.values()
+                          if (bound is None or w.id == bound) and w.enabled
+                          and w.state != "offline" and (mode == "auto" or w.state != "downgrade")
+                          and account_supports_tier(w.subscription_tier, required_tier)]
+            if not candidates:
+                return None
+            if enqueue:
+                candidates = [w for w in candidates if w.queued < self.get_concurrency_config(w.id)["max_queued"]]
+                if not candidates:
+                    raise OverflowError("Account queue is full")
+            selected = min(candidates, key=lambda w: (
+                (w.in_flight + w.queued) / self.get_concurrency_config(w.id)["max_concurrency"],
+                w.request_count,
+            ))
+            if enqueue:
+                selected.queued += 1
+            return selected.id
+
+    def adjust_queued(self, client_id, delta):
+        with self._lock:
+            if client_id in self.clients:
+                self.clients[client_id].queued = max(0, self.clients[client_id].queued + delta)
+
+    def try_acquire(self, client_id, mode, *, probe=False):
+        with self._lock:
+            wrapper = self.clients.get(client_id)
+            if wrapper is None or not wrapper.enabled:
+                return False
+            if not probe and (not wrapper.is_available() or wrapper.state == "offline"):
+                return False
+            limits = self.get_concurrency_config(client_id)
+            now = time.monotonic()
+            wrapper.start_tokens = min(limits["burst"], wrapper.start_tokens +
+                                       (now - wrapper.tokens_at) * limits["start_rate"])
+            wrapper.tokens_at = now
+            if (wrapper.in_flight >= limits["max_concurrency"] or
+                sum(w.in_flight for w in self.clients.values()) >= self._concurrency_config["global_max_running"] or
+                wrapper.start_tokens < 1 or now < wrapper.rate_available_after or
+                (mode == "deep research" and wrapper.research_running >= limits["research_concurrency"])):
+                return False
+            wrapper.start_tokens -= 1
+            wrapper.in_flight += 1
+            if mode == "deep research":
+                wrapper.research_running += 1
+            return True
+
+    def release(self, client_id, mode):
+        with self._lock:
+            wrapper = self.clients.get(client_id)
+            if wrapper is not None:
+                wrapper.in_flight = max(0, wrapper.in_flight - 1)
+                if mode == "deep research":
+                    wrapper.research_running = max(0, wrapper.research_running - 1)
+
+    def mark_job_error(self, client_id, code, retry_after=0):
+        with self._lock:
+            wrapper = self.clients.get(client_id)
+            if not wrapper:
+                return
+            if code == "upstream_rate_limited":
+                wrapper.rate_available_after = max(wrapper.rate_available_after,
+                    time.monotonic() + max(1, retry_after))
+                wrapper.start_tokens = 0
+            elif code == "account_unavailable":
+                wrapper.state = "offline"
+            elif code in ("upstream_http_error", "upstream_transport_error"):
+                wrapper.mark_failure()
+
+    def close(self):
+        self.stop_heartbeat()
+        with self._lock:
+            clients = [w.client for w in self.clients.values()]
+        for client in clients:
+            client.close()
 
     def get_model_subscription_tiers(self) -> set[str]:
         """Return model tiers supported by enabled configured accounts."""
@@ -700,33 +858,19 @@ class ClientPool:
         new_interval = self._heartbeat_config.get("interval", 6)
 
         # 热重载心跳任务：如果开关打开且（之前是关的 或 间隔变了），则重启
-        if new_enable and (not old_enable or old_interval != new_interval):
-            logger.info("Heartbeat config changed, restarting heartbeat task...")
-            self.stop_heartbeat()
-            self.start_heartbeat()
+        if old_enable != new_enable or old_interval != new_interval:
+            def reload_heartbeat():
+                self.stop_heartbeat()
+                if new_enable:
+                    self.start_heartbeat()
+            loop = self._event_loop
+            if loop is not None and not loop.is_closed():
+                loop.call_soon_threadsafe(reload_heartbeat)
+            else:
+                reload_heartbeat()
 
-        # Save to config file if available
-        if self._config_path and os.path.exists(self._config_path):
-            try:
-                with open(self._config_path, "r", encoding="utf-8") as f:
-                    config = json.load(f)
-
-                # Update heart_beat section
-                config["heart_beat"] = {
-                    "enable": self._heartbeat_config["enable"],
-                    "question": self._heartbeat_config["question"],
-                    "interval": self._heartbeat_config["interval"],
-                    "tg_bot_token": self._heartbeat_config["tg_bot_token"],
-                    "tg_chat_id": self._heartbeat_config["tg_chat_id"]
-                }
-
-                with open(self._config_path, "w", encoding="utf-8") as f:
-                    json.dump(config, f, ensure_ascii=False, indent=2)
-
-                logger.info(f"Heartbeat config saved to {self._config_path}")
-            except Exception as e:
-                logger.error(f"Failed to save heartbeat config: {e}")
-                return {"status": "error", "message": f"Failed to save config: {e}"}
+        # Persistence is serialized with successful query cookie updates.
+        self._save_config()
 
         return {"status": "ok", "config": self._heartbeat_config.copy()}
 
@@ -758,25 +902,7 @@ class ClientPool:
         if "fallback_to_auto" in new_config:
             self._fallback_config["fallback_to_auto"] = new_config["fallback_to_auto"]
 
-        # Save to config file if available
-        if self._config_path and os.path.exists(self._config_path):
-            try:
-                with open(self._config_path, "r", encoding="utf-8") as f:
-                    config = json.load(f)
-
-                # Update fallback section
-                config["fallback"] = {
-                    "fallback_to_auto": self._fallback_config["fallback_to_auto"]
-                }
-
-                with open(self._config_path, "w", encoding="utf-8") as f:
-                    json.dump(config, f, ensure_ascii=False, indent=2)
-
-                logger.info(f"Fallback config saved to {self._config_path}")
-            except Exception as e:
-                logger.error(f"Failed to save fallback config: {e}")
-                return {"status": "error", "message": f"Failed to save config: {e}"}
-
+        self._save_config()
         return {"status": "ok", "config": self._fallback_config.copy()}
 
     # ==================== Incognito Methods ====================
@@ -802,24 +928,7 @@ class ClientPool:
         if "enabled" in new_config:
             self._incognito_config["enabled"] = new_config["enabled"]
 
-        # Save to config file if available
-        if self._config_path and os.path.exists(self._config_path):
-            try:
-                with open(self._config_path, "r", encoding="utf-8") as f:
-                    config = json.load(f)
-
-                config["incognito"] = {
-                    "enabled": self._incognito_config["enabled"]
-                }
-
-                with open(self._config_path, "w", encoding="utf-8") as f:
-                    json.dump(config, f, ensure_ascii=False, indent=2)
-
-                logger.info(f"Incognito config saved to {self._config_path}")
-            except Exception as e:
-                logger.error(f"Failed to save incognito config: {e}")
-                return {"status": "error", "message": f"Failed to save config: {e}"}
-
+        self._save_config()
         return {"status": "ok", "config": self._incognito_config.copy()}
 
     # ==================== Timeouts Methods ====================
@@ -890,21 +999,7 @@ class ClientPool:
 
         self._timeouts_config = sanitized
 
-        if self._config_path and os.path.exists(self._config_path):
-            try:
-                with open(self._config_path, "r", encoding="utf-8") as f:
-                    config = json.load(f)
-
-                config["timeouts"] = self._timeouts_config.copy()
-
-                with open(self._config_path, "w", encoding="utf-8") as f:
-                    json.dump(config, f, ensure_ascii=False, indent=2)
-
-                logger.info(f"Timeouts config saved to {self._config_path}")
-            except Exception as e:
-                logger.error(f"Failed to save timeouts config: {e}")
-                return {"status": "error", "message": f"Failed to save config: {e}"}
-
+        self._save_config()
         return {"status": "ok", "config": self._timeouts_config.copy()}
 
     async def _send_telegram_notification(self, message: str) -> None:
@@ -944,7 +1039,15 @@ class ClientPool:
         except ImportError:
             logger.warning("aiohttp not installed, Telegram notification skipped")
         except Exception as e:
-            logger.error(f"Error sending Telegram notification: {e}")
+            logger.error("Telegram notification failed (%s)", type(e).__name__)
+
+    async def _health_search(self, client, question, mode):
+        from ..upstream_async import search_stream
+        latest = None
+        async for latest in search_stream(client, query=question, mode=mode, language="zh-CN",
+                                           incognito=True, timeout=min(60, self.get_search_timeout(mode))):
+            pass
+        return latest
 
     async def test_client(self, client_id: str) -> Dict[str, Any]:
         """
@@ -959,6 +1062,10 @@ class ClientPool:
                 return {"status": "error", "message": f"Client '{client_id}' not found"}
             client = wrapper.client
 
+        from ..upstream_async import refresh_account
+        from ..upstream_protocol import UpstreamError
+        if wrapper.queued or not self.try_acquire(client_id, "auto", probe=True):
+            return {"status": "skipped", "state": wrapper.state, "client_id": client_id}
         question = self._heartbeat_config.get("question", "现在是农历几月几号？")
         prev_state = wrapper.state
         logger.debug(f"[{client_id}] Starting heartbeat test, prev_state={prev_state}")
@@ -966,13 +1073,13 @@ class ClientPool:
         try:
             # First, verify the user session is valid (logged in)
             logger.debug(f"[{client_id}] Fetching user_info from auth session...")
-            user_info = await asyncio.to_thread(client.get_user_info)
-            logger.debug(f"[{client_id}] user_info response: {user_info}")
+            user_info = await refresh_account(client)
+            logger.debug("[%s] Auth session lookup completed", client_id)
             with self._lock:
                 if self.clients.get(client_id) is wrapper:
                     wrapper.refresh_subscription_tier(user_info)
 
-            is_logged_in = user_info and user_info.get("user")
+            is_logged_in = bool(user_info and user_info.get("user"))
             logger.debug(f"[{client_id}] is_logged_in={is_logged_in}")
 
             pro_success = False
@@ -984,26 +1091,19 @@ class ClientPool:
                 # not just basic anonymous access
                 logger.debug(f"[{client_id}] User logged in, testing Pro mode...")
                 try:
-                    response = await asyncio.to_thread(
-                        client.search,
-                        question,
-                        mode="pro",
-                        model=None,
-                        sources=["web"],
-                        files={},
-                        stream=False,
-                        language="zh-CN",
-                        incognito=True,
-                    )
+                    response = await self._health_search(client, question, "pro")
                     logger.debug(f"[{client_id}] Pro mode response keys: {response.keys() if response else None}")
                     if response and "answer" in response:
                         pro_success = True
                         logger.debug(f"[{client_id}] Pro mode test succeeded")
                     else:
                         logger.debug(f"[{client_id}] Pro mode response missing 'answer' key")
+                except UpstreamError as e:
+                    self.mark_job_error(client_id, e.code, e.retry_after)
+                    return {"status": "error", "state": wrapper.state, "client_id": client_id, "error": e.code}
                 except Exception as e:
                     pro_error = e
-                    logger.warning(f"Pro mode test failed for client '{client_id}': {e}")
+                    logger.warning("Health probe model access failed for client %s", client_id)
                     logger.debug(f"[{client_id}] Pro mode exception: {type(e).__name__}: {e}")
 
                 # Check if response contains answer (Pro mode success)
@@ -1013,6 +1113,7 @@ class ClientPool:
                         wrapper.last_heartbeat = time.time()
                     logger.info(f"Heartbeat test passed for client '{client_id}'")
                     logger.debug(f"[{client_id}] State changed: {prev_state} -> normal")
+                    await asyncio.to_thread(self._save_config)
                     return {"status": "ok", "state": "normal", "client_id": client_id}
 
                 # Pro mode failed, try auto mode to check for downgrade
@@ -1026,25 +1127,18 @@ class ClientPool:
             logger.debug(f"[{client_id}] Testing Auto mode...")
             auto_success = False
             try:
-                auto_response = await asyncio.to_thread(
-                    client.search,
-                    question,
-                    mode="auto",
-                    model=None,
-                    sources=["web"],
-                    files={},
-                    stream=False,
-                    language="zh-CN",
-                    incognito=True,
-                )
+                auto_response = await self._health_search(client, question, "auto")
                 logger.debug(f"[{client_id}] Auto mode response keys: {auto_response.keys() if auto_response else None}")
                 if auto_response and "answer" in auto_response:
                     auto_success = True
                     logger.debug(f"[{client_id}] Auto mode test succeeded")
                 else:
                     logger.debug(f"[{client_id}] Auto mode response missing 'answer' key")
+            except UpstreamError as e:
+                self.mark_job_error(client_id, e.code, e.retry_after)
+                return {"status": "error", "state": wrapper.state, "client_id": client_id, "error": e.code}
             except Exception as e:
-                logger.warning(f"Auto mode test failed for client '{client_id}': {e}")
+                logger.warning("Auto health probe failed for client %s", client_id)
                 logger.debug(f"[{client_id}] Auto mode exception: {type(e).__name__}: {e}")
 
             if auto_success:
@@ -1064,6 +1158,7 @@ class ClientPool:
                         f"⚠️ perplexity mcp: <b>{client_id}</b> downgraded (pro failed, auto works)."
                     )
 
+                await asyncio.to_thread(self._save_config)
                 return {"status": "ok", "state": "downgrade", "client_id": client_id}
             else:
                 # Both pro and auto failed - account is offline
@@ -1082,6 +1177,9 @@ class ClientPool:
                 error_msg = str(pro_error) if pro_error else "no answer in response"
                 return {"status": "error", "state": "offline", "client_id": client_id, "error": error_msg}
 
+        except UpstreamError as e:
+            self.mark_job_error(client_id, e.code, e.retry_after)
+            return {"status": "error", "state": wrapper.state, "client_id": client_id, "error": e.code}
         except Exception as e:
             with self._lock:
                 wrapper.state = "offline"
@@ -1095,7 +1193,9 @@ class ClientPool:
                     f"⚠️ perplexity mcp: <b>{client_id}</b> test failed."
                 )
 
-            return {"status": "error", "state": "offline", "client_id": client_id, "error": str(e)}
+            return {"status": "error", "state": "offline", "client_id": client_id, "error": type(e).__name__}
+        finally:
+            self.release(client_id, "auto")
 
     async def test_all_clients(self) -> Dict[str, Any]:
         """
@@ -1202,7 +1302,10 @@ class ClientPool:
         try:
             if loop is None:
                 loop = asyncio.get_running_loop()
+            self._event_loop = loop
             self._heartbeat_task = loop.create_task(self._heartbeat_loop())
+            self._heartbeat_tasks.add(self._heartbeat_task)
+            self._heartbeat_task.add_done_callback(self._heartbeat_tasks.discard)
             logger.info("Heartbeat task started")
             return True
         except RuntimeError:
@@ -1216,11 +1319,16 @@ class ClientPool:
         Returns:
             True if heartbeat was stopped, False if not running
         """
-        if self._heartbeat_task and not self._heartbeat_task.done():
-            self._heartbeat_task.cancel()
-            logger.info("Heartbeat task stopped")
-            return True
-        return False
+        tasks = set(self._heartbeat_tasks)
+        if self._heartbeat_task is not None:
+            tasks.add(self._heartbeat_task)
+        active = [task for task in tasks if not task.done()]
+        self._heartbeat_task = None
+        for task in active:
+            loop = task.get_loop()
+            if not loop.is_closed():
+                loop.call_soon_threadsafe(task.cancel)
+        return bool(active)
 
     # ==================== Export/Import Methods ====================
 
@@ -1337,43 +1445,23 @@ class ClientPool:
         }
 
     def _save_config(self) -> None:
-        """Save the current configuration to the config file."""
+        """Serialize all configuration through one writer; preserve unknown extension fields."""
         if not self._config_path:
             return
-
-        try:
-            config = {
-                "heart_beat": self._heartbeat_config.copy(),
-                "fallback": self._fallback_config.copy(),
-                "incognito": self._incognito_config.copy(),
-                "tokens": [],
-            }
-
-            # 不要加锁，避免死锁（调用者可能已经持有锁，或者这是一个快速操作）
-            # 注意：如果其他线程正在修改 self.clients，这里可能会有并发问题
-            # 但鉴于这是只读操作，且 Python 的 GIL 保护，通常是安全的
-            # 为了更安全，复制一份引用
+        with self._config_write_lock:
             with self._lock:
-                clients_copy = list(self.clients.items())
+                config = {**self._extra_config,
+                    "heart_beat": self._heartbeat_config.copy(),
+                    "fallback": self._fallback_config.copy(),
+                    "incognito": self._incognito_config.copy(),
+                    "timeouts": self._timeouts_config.copy(),
+                    "concurrency": self._concurrency_config.copy(), "tokens": []}
+                for client_id, wrapper in self.clients.items():
+                    cookies = wrapper.client.cookies
+                    config["tokens"].append({
+                        "id": client_id, "csrf_token": cookies.get("next-auth.csrf-token", ""),
+                        "session_token": cookies.get("__Secure-next-auth.session-token", ""),
+                        "enabled": wrapper.enabled, "concurrency": wrapper.concurrency.copy(),
+                    })
+            write_config(self._config_path, config)
 
-            for client_id, wrapper in clients_copy:
-                client = wrapper.client
-                # 使用 client.cookies 属性获取最新的 session cookies
-                cookies = client.cookies
-
-                csrf = cookies.get("next-auth.csrf-token", "")
-                session = cookies.get("__Secure-next-auth.session-token", "")
-                logger.debug(f"[{client_id}] Saving config with cookies: csrf={csrf[:15]}... session={session[:15]}...")
-
-                config["tokens"].append({
-                    "id": client_id,
-                    "csrf_token": csrf,
-                    "session_token": session,
-                })
-
-            with open(self._config_path, "w", encoding="utf-8") as f:
-                json.dump(config, f, ensure_ascii=False, indent=2)
-
-            logger.info(f"Config saved to {self._config_path}")
-        except Exception as e:
-            logger.error(f"Failed to save config: {e}")

@@ -22,6 +22,7 @@ class UpstreamResponseAccumulator:
 
     def __init__(self) -> None:
         self._answer_chunks: List[str] = []
+        self._answer = ""
         self._workflow_steps: List[Dict[str, Any]] = []
 
     def normalize(self, response: Dict[str, Any]) -> Dict[str, Any]:
@@ -88,9 +89,11 @@ class UpstreamResponseAccumulator:
 
         explicit_answer = markdown_block.get("answer")
         if isinstance(explicit_answer, str) and explicit_answer:
-            response["answer"] = explicit_answer
-        elif self._answer_chunks:
-            response["answer"] = "".join(self._answer_chunks)
+            self._answer = explicit_answer
+        elif isinstance(chunks, list):
+            self._answer = "".join(self._answer_chunks)
+        if self._answer:
+            response["answer"] = self._answer
 
     def _ensure_workflow_step(
         self,

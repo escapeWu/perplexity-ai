@@ -11,6 +11,10 @@ services:
       - MCP_TOKEN=${MCP_TOKEN:-sk-123456}
       # 管理员 Token（用于号池管理 API）
       - PPLX_ADMIN_TOKEN=${PPLX_ADMIN_TOKEN:-}
+      - PPLX_TOKEN_POOL_CONFIG=/app/data/config/token_pool_config.json
+      - PPLX_LEGACY_TOKEN_POOL_CONFIG=/app/legacy-token-pool.json
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FILE=/app/data/logs/perplexity.log
       # WebUI、OAI 与 v2 MCP 共用的会话数据库
       - PPLX_SESSION_DB=${PPLX_SESSION_DB:-}
       # 旧名称兼容；未配置时默认写入 /app/data/webui_sessions.sqlite3
@@ -22,14 +26,24 @@ services:
       # 每日从 GitHub Raw 拉取由开发机发布的模型清单
       - PPLX_MODELS_CONFIG_URL=${PPLX_MODELS_CONFIG_URL:-https://raw.githubusercontent.com/escapeWu/perplexity-ai/main/catalog/model_config_v2.json}
     volumes:
-      # 挂载 token 池配置文件（必需）
-      - ./token_pool_config.json:/app/token_pool_config.json
+      # Only used to seed data/config on the first upgraded start.
+      # Runtime writes replace files atomically inside the mounted data directory.
+      - ./token_pool_config.json:/app/legacy-token-pool.json:ro
       # 持久化 Perplexity 模型目录的每日缓存
       - ./data:/app/data
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/ready"]
       interval: 10s
       timeout: 5s
       retries: 12
       start_period: 20s
+    stop_grace_period: 30s
+    mem_limit: ${MCP_MEMORY_LIMIT:-1g}
+    cpus: ${MCP_CPUS:-2}
+    pids_limit: 256
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     restart: unless-stopped

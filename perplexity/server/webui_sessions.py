@@ -8,7 +8,7 @@ import re
 import sqlite3
 import threading
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
@@ -30,6 +30,21 @@ class WebUISessionNotFound(WebUISessionError):
 
 class InvalidWebUISession(WebUISessionError):
     """Raised when session input is malformed."""
+
+
+class SessionBusy(WebUISessionError):
+    """A session already has an unfinished turn."""
+
+    status_code = 409
+    error_type = "session_busy"
+
+
+class _ClosingConnection(sqlite3.Connection):
+    def __exit__(self, *args):
+        try:
+            return super().__exit__(*args)
+        finally:
+            self.close()
 
 
 @dataclass(frozen=True)
@@ -104,6 +119,8 @@ def sanitize_message_content(content: Any) -> Any:
             filename = part.get("filename")
             if not isinstance(filename, str) or not filename.strip():
                 filename = "attachment"
+            if len(filename.encode()) > 1024:
+                raise InvalidWebUISession("Attachment filename is too long")
             safe_parts.append({"type": "input_file", "filename": filename.strip()})
     return safe_parts
 
@@ -134,7 +151,7 @@ class WebUISessionStore:
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(str(self.database_path), timeout=30)
+        connection = sqlite3.connect(str(self.database_path), timeout=5, factory=_ClosingConnection)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         return connection
@@ -181,6 +198,10 @@ class WebUISessionStore:
                 connection.execute(
                     "ALTER TABLE webui_sessions ADD COLUMN origin TEXT NOT NULL DEFAULT 'webui'"
                 )
+            message_columns = {row["name"] for row in connection.execute("PRAGMA table_info(webui_messages)")}
+            if "job_id" not in message_columns:
+                connection.execute("ALTER TABLE webui_messages ADD COLUMN job_id TEXT")
+            connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_job_role ON webui_messages(job_id, role) WHERE job_id IS NOT NULL")
             connection.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_webui_sessions_origin_updated
@@ -215,13 +236,14 @@ class WebUISessionStore:
         title: Optional[str] = None,
         *,
         origin: str = "webui",
+        _connection: Optional[sqlite3.Connection] = None,
     ) -> WebUISession:
         if origin not in SESSION_ORIGINS:
             raise InvalidWebUISession(f"Invalid session origin: {origin}")
         session_id = f"sess_{uuid4().hex}"
         clean_title = validate_session_title(title) if title is not None else DEFAULT_SESSION_TITLE
         now = time.time()
-        with self._connect() as connection:
+        with (self._connect() if _connection is None else nullcontext(_connection)) as connection:
             connection.execute(
                 """
                 INSERT INTO webui_sessions (
@@ -230,25 +252,29 @@ class WebUISessionStore:
                 """,
                 (session_id, clean_title, int(title is not None), origin, now, now),
             )
+            if _connection is not None:
+                return self._session_from_row(connection.execute("SELECT * FROM webui_sessions WHERE id=?", (session_id,)).fetchone())
         return self.get_session(session_id)
 
-    def list_sessions(self, *, origin: Optional[str] = "webui") -> List[WebUISession]:
+    def list_sessions(self, *, origin: Optional[str] = "webui", limit=None, before=None) -> List[WebUISession]:
         if origin is not None and origin not in SESSION_ORIGINS:
             raise InvalidWebUISession(f"Invalid session origin: {origin}")
+        clauses, values = [], []
+        if origin is not None:
+            clauses.append("origin=?")
+            values.append(origin)
+        if before is not None:
+            clauses.append("(updated_at < ? OR (updated_at = ? AND id < ?))")
+            values.extend([before[0], before[0], before[1]])
+        sql = "SELECT * FROM webui_sessions"
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        sql += " ORDER BY updated_at DESC,id DESC"
+        if limit is not None:
+            sql += " LIMIT ?"
+            values.append(min(201, max(1, limit)))
         with self._connect() as connection:
-            if origin is None:
-                rows = connection.execute(
-                    "SELECT * FROM webui_sessions ORDER BY updated_at DESC, created_at DESC"
-                ).fetchall()
-            else:
-                rows = connection.execute(
-                    """
-                    SELECT * FROM webui_sessions
-                    WHERE origin = ?
-                    ORDER BY updated_at DESC, created_at DESC
-                    """,
-                    (origin,),
-                ).fetchall()
+            rows = connection.execute(sql, values).fetchall()
         return [self._session_from_row(row) for row in rows]
 
     def get_session(self, session_id: str) -> WebUISession:
@@ -261,18 +287,26 @@ class WebUISessionStore:
             raise WebUISessionNotFound("Session not found")
         return self._session_from_row(row)
 
-    def get_messages(self, session_id: str) -> List[Dict[str, Any]]:
+    def get_messages(self, session_id: str, *, limit=None, before=None) -> List[Dict[str, Any]]:
         self.get_session(session_id)
+        sql = "SELECT id,job_id,role,content_json,sources_json,created_at FROM webui_messages WHERE session_id=?"
+        values = [session_id]
+        if before is not None:
+            sql += " AND id < ?"
+            values.append(before)
+        sql += " ORDER BY id " + ("DESC" if limit is not None else "ASC")
+        if limit is not None:
+            sql += " LIMIT ?"
+            values.append(min(201, max(1, limit)))
+        rows, byte_count = [], 0
         with self._connect() as connection:
-            rows = connection.execute(
-                """
-                SELECT role, content_json, sources_json, created_at
-                FROM webui_messages
-                WHERE session_id = ?
-                ORDER BY id ASC
-                """,
-                (session_id,),
-            ).fetchall()
+            for row in connection.execute(sql, values):
+                byte_count += len(row["content_json"].encode()) + len(row["sources_json"].encode())
+                if limit is not None and rows and byte_count > 4 * 1024 * 1024:
+                    break
+                rows.append(row)
+        if limit is not None:
+            rows.reverse()
 
         messages: List[Dict[str, Any]] = []
         for row in rows:
@@ -285,14 +319,23 @@ class WebUISessionStore:
             except (TypeError, json.JSONDecodeError):
                 sources = []
             message: Dict[str, Any] = {
+                "id": row["id"],
                 "role": row["role"],
                 "content": content,
                 "created_at": float(row["created_at"]),
             }
+            if row["role"] == "assistant" and isinstance(content, str) and not content.strip():
+                message["error"] = "This response is empty. Send the question again to retry."
+            if row["job_id"]:
+                message["job_id"] = row["job_id"]
             if row["role"] == "assistant" and isinstance(sources, list) and sources:
                 message["sources"] = sources
             messages.append(message)
         return messages
+
+    def has_messages_before(self, session_id: str, before: int) -> bool:
+        with self._connect() as connection:
+            return connection.execute("SELECT 1 FROM webui_messages WHERE session_id=? AND id<? LIMIT 1", (session_id, before)).fetchone() is not None
 
     def rename_session(self, session_id: str, title: str) -> WebUISession:
         validate_session_id(session_id)
@@ -313,6 +356,11 @@ class WebUISessionStore:
     def delete_session(self, session_id: str) -> None:
         validate_session_id(session_id)
         with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if connection.execute("SELECT 1 FROM sqlite_master WHERE name='chat_jobs'").fetchone():
+                active = connection.execute("SELECT id FROM chat_jobs WHERE session_id=? AND state IN ('queued','running','cancelling')", (session_id,)).fetchone()
+                if active:
+                    raise SessionBusy("Stop the active task before deleting this session")
             cursor = connection.execute("DELETE FROM webui_sessions WHERE id = ?", (session_id,))
         if cursor.rowcount == 0:
             raise WebUISessionNotFound("Session not found")
@@ -351,11 +399,13 @@ class WebUISessionStore:
         backend_uuid: str,
         attachments: List[str],
         model: Optional[str],
+        job_id: Optional[str] = None,
+        _connection: Optional[sqlite3.Connection] = None,
     ) -> WebUISession:
         validate_session_id(session_id)
         safe_user_content = sanitize_message_content(user_content)
-        if not isinstance(assistant_content, str):
-            raise InvalidWebUISession("Assistant content must be a string")
+        if not isinstance(assistant_content, str) or not assistant_content.strip():
+            raise InvalidWebUISession("Assistant content must be non-empty text")
         if not isinstance(backend_uuid, str) or not backend_uuid.strip():
             raise InvalidWebUISession("Upstream response did not include a backend_uuid")
         if not isinstance(attachments, list) or not all(
@@ -365,8 +415,9 @@ class WebUISessionStore:
         safe_sources = sources if isinstance(sources, list) else []
         now = time.time()
 
-        with self._connect() as connection:
-            connection.execute("BEGIN IMMEDIATE")
+        with (self._connect() if _connection is None else nullcontext(_connection)) as connection:
+            if _connection is None:
+                connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
                 """
                 SELECT title, title_is_custom,
@@ -381,22 +432,23 @@ class WebUISessionStore:
             connection.execute(
                 """
                 INSERT INTO webui_messages (
-                    session_id, role, content_json, sources_json, created_at
-                ) VALUES (?, 'user', ?, '[]', ?)
+                    session_id, role, content_json, sources_json, created_at, job_id
+                ) VALUES (?, 'user', ?, '[]', ?, ?)
                 """,
-                (session_id, json.dumps(safe_user_content, ensure_ascii=False), now),
+                (session_id, json.dumps(safe_user_content, ensure_ascii=False), now, job_id),
             )
             connection.execute(
                 """
                 INSERT INTO webui_messages (
-                    session_id, role, content_json, sources_json, created_at
-                ) VALUES (?, 'assistant', ?, ?, ?)
+                    session_id, role, content_json, sources_json, created_at, job_id
+                ) VALUES (?, 'assistant', ?, ?, ?, ?)
                 """,
                 (
                     session_id,
                     json.dumps(assistant_content, ensure_ascii=False),
                     json.dumps(safe_sources, ensure_ascii=False),
                     now,
+                    job_id,
                 ),
             )
 
@@ -419,6 +471,8 @@ class WebUISessionStore:
                     session_id,
                 ),
             )
+        if _connection is not None:
+            return self._session_from_row(_connection.execute("SELECT * FROM webui_sessions WHERE id=?", (session_id,)).fetchone())
         return self.get_session(session_id)
 
     @contextmanager
@@ -426,7 +480,8 @@ class WebUISessionStore:
         validate_session_id(session_id)
         with self._locks_guard:
             lock = self._turn_locks.setdefault(session_id, threading.Lock())
-        lock.acquire()
+        if not lock.acquire(blocking=False):
+            raise SessionBusy("This session already has an active turn")
         try:
             yield
         finally:

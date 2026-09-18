@@ -2,6 +2,8 @@
 Admin, pool management, and heartbeat routes.
 """
 
+import asyncio
+
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -20,8 +22,8 @@ if mcp is None:
 @mcp.custom_route("/health", methods=["GET"])
 async def health_check(request: Request) -> JSONResponse:
     """健康检查接口，用于监控服务状态，包含号池摘要"""
-    pool = get_pool()
-    status = pool.get_status()
+    from . import app as shared
+    status = shared._pool.get_status() if shared._pool is not None else {"total": 0, "available": 0}
     return JSONResponse({
         "status": "healthy",
         "service": "perplexity-mcp",
@@ -30,6 +32,52 @@ async def health_check(request: Request) -> JSONResponse:
             "available": status["available"],
         }
     })
+
+
+# Readiness is separate from process liveness and does not issue upstream searches.
+@mcp.custom_route("/ready", methods=["GET"])
+async def ready_check(request: Request) -> JSONResponse:
+    from . import app as shared
+    runtime = shared._job_runtime
+    ready = runtime is not None and runtime.accepting and runtime.dispatcher is not None and not runtime.dispatcher.done()
+    if ready:
+        try:
+            ready = await runtime.db(runtime.store.ping)
+            ready = ready and runtime.status()["ready"] and any(w.enabled and w.state != "offline" for w in runtime.pool.clients.values())
+        except Exception:
+            ready = False
+    return JSONResponse({"status": "ready" if ready else "not_ready"}, status_code=200 if ready else 503)
+
+
+@mcp.custom_route("/runtime/status", methods=["GET"])
+async def runtime_status(request: Request) -> JSONResponse:
+    from .oai import _verify_auth
+    from .app import get_job_runtime
+    error = _verify_auth(request)
+    if error:
+        return error
+    runtime = await get_job_runtime()
+    return JSONResponse({**runtime.status(), "accounts": runtime.pool.get_status()["clients"]})
+
+
+@mcp.custom_route("/concurrency/config", methods=["GET", "POST"])
+async def concurrency_config(request: Request) -> JSONResponse:
+    from ..config import ADMIN_TOKEN
+    if not ADMIN_TOKEN or request.headers.get("X-Admin-Token") != ADMIN_TOKEN:
+        return JSONResponse({"status": "error", "message": "Valid admin token required"}, status_code=401 if ADMIN_TOKEN else 403)
+    pool = get_pool()
+    client_id = request.query_params.get("client_id")
+    if client_id is not None and client_id not in pool.clients:
+        return JSONResponse({"status": "error", "message": "Account not found"}, status_code=404)
+    try:
+        if request.method == "POST":
+            body = await request.json()
+            config = await asyncio.to_thread(pool.update_concurrency, body, client_id)
+        else:
+            config = pool.get_concurrency_config(client_id)
+        return JSONResponse({"status": "ok", "config": config})
+    except ValueError as exc:
+        return JSONResponse({"status": "error", "message": str(exc)}, status_code=400)
 
 
 # 号池状态查询端点 (不需要认证)
@@ -115,10 +163,10 @@ async def pool_import(request: Request) -> JSONResponse:
             "message": "Invalid JSON body"
         }, status_code=400)
 
-    return JSONResponse(pool.import_config(body))
+    return JSONResponse(await asyncio.to_thread(pool.import_config, body))
 
 
-# 号池管理 API 端点 (用于前端管理页面)
+# Pool management API for the administration page.
 @mcp.custom_route("/pool/{action}", methods=["POST"])
 async def pool_api(request: Request) -> JSONResponse:
     """号池管理 API 接口，供前端管理页面调用"""
@@ -167,19 +215,19 @@ async def pool_api(request: Request) -> JSONResponse:
     elif action == "add":
         if not all([client_id, csrf_token, session_token]):
             return JSONResponse({"status": "error", "message": "Missing required parameters"})
-        return JSONResponse(pool.add_client(client_id, csrf_token, session_token))
+        return JSONResponse(await asyncio.to_thread(pool.add_client, client_id, csrf_token, session_token))
     elif action == "remove":
         if not client_id:
             return JSONResponse({"status": "error", "message": "Missing required parameter: id"})
-        return JSONResponse(pool.remove_client(client_id))
+        return JSONResponse(await asyncio.to_thread(pool.remove_client, client_id))
     elif action == "enable":
         if not client_id:
             return JSONResponse({"status": "error", "message": "Missing required parameter: id"})
-        return JSONResponse(pool.enable_client(client_id))
+        return JSONResponse(await asyncio.to_thread(pool.enable_client, client_id))
     elif action == "disable":
         if not client_id:
             return JSONResponse({"status": "error", "message": "Missing required parameter: id"})
-        return JSONResponse(pool.disable_client(client_id))
+        return JSONResponse(await asyncio.to_thread(pool.disable_client, client_id))
     elif action == "reset":
         if not client_id:
             return JSONResponse({"status": "error", "message": "Missing required parameter: id"})
@@ -215,7 +263,7 @@ async def pool_api(request: Request) -> JSONResponse:
                 "message": "Invalid or missing admin token."
             }, status_code=401)
 
-        return JSONResponse(pool.import_config(body))
+        return JSONResponse(await asyncio.to_thread(pool.import_config, body))
     else:
         return JSONResponse({"status": "error", "message": f"Unknown action: {action}"})
 
@@ -387,7 +435,7 @@ async def fallback_config_update(request: Request) -> JSONResponse:
             "message": "Invalid JSON body"
         }, status_code=400)
 
-    result = pool.update_fallback_config(body)
+    result = await asyncio.to_thread(pool.update_fallback_config, body)
     return JSONResponse(result)
 
 
@@ -430,7 +478,7 @@ async def incognito_config_update(request: Request) -> JSONResponse:
             "message": "Invalid JSON body"
         }, status_code=400)
 
-    result = pool.update_incognito_config(body)
+    result = await asyncio.to_thread(pool.update_incognito_config, body)
     return JSONResponse(result)
 
 
@@ -473,7 +521,7 @@ async def timeouts_config_update(request: Request) -> JSONResponse:
             "message": "Invalid JSON body"
         }, status_code=400)
 
-    result = pool.update_timeouts_config(body)
+    result = await asyncio.to_thread(pool.update_timeouts_config, body)
     return JSONResponse(result)
 
 
@@ -504,7 +552,7 @@ async def heartbeat_config_update(request: Request) -> JSONResponse:
             "message": "Invalid JSON body"
         }, status_code=400)
 
-    result = pool.update_heartbeat_config(body)
+    result = await asyncio.to_thread(pool.update_heartbeat_config, body)
 
     # Send Telegram notification if configured
     if result.get("status") == "ok":
@@ -625,7 +673,7 @@ def _tail_file(filepath, n: int = 100) -> tuple[list[str], int, int]:
         remaining = file_size
         buffer = b""
 
-        while remaining > 0 and len(lines) <= n:
+        while remaining > 0 and len(lines) <= n and len(buffer) < 256 * 1024:
             read_size = min(buffer_size, remaining)
             remaining -= read_size
             f.seek(remaining)
@@ -662,14 +710,14 @@ async def logs_tail(request: Request) -> JSONResponse:
     # 获取请求的行数，默认 100，最大 1000
     try:
         lines_param = request.query_params.get("lines", "100")
-        num_lines = min(int(lines_param), 1000)
+        num_lines = max(1, min(int(lines_param), 1000))
     except ValueError:
         num_lines = 100
 
     # 读取日志文件
     log_path = pathlib.Path(LOG_FILE)
     try:
-        lines, total_lines, file_size = _tail_file(log_path, num_lines)
+        lines, total_lines, file_size = await asyncio.to_thread(_tail_file, log_path, num_lines)
         return JSONResponse({
             "status": "ok",
             "lines": lines,

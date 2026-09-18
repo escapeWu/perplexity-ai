@@ -152,7 +152,7 @@ async def test_oai_model_list_uses_configured_account_tiers(tmp_path, monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_oai_rejects_max_model_for_pro_only_pool(tmp_path, monkeypatch) -> None:
+async def test_oai_rejects_max_model_for_pro_only_pool(tmp_path, monkeypatch, api_runtime) -> None:
     registry = registry_with_max_model(tmp_path)
     monkeypatch.setattr("perplexity.model_registry._registry", registry)
     pool = MagicMock()

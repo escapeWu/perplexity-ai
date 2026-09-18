@@ -32,6 +32,28 @@ MCP_TOKEN = os.getenv("MCP_TOKEN", "sk-123456")
 
 # 全局 ClientPool 实例
 _pool: Optional[ClientPool] = None
+_job_runtime = None
+_runtime_lock = None
+
+
+async def get_job_runtime(store=None):
+    """Application-owned runtime shared by every protocol adapter."""
+    global _job_runtime, _runtime_lock
+    if _job_runtime is not None:
+        return _job_runtime
+    if _runtime_lock is None:
+        _runtime_lock = asyncio.Lock()
+    async with _runtime_lock:
+        if _job_runtime is None:
+            from .job_runtime import JobRuntime
+            from .webui_sessions import get_webui_session_store
+            pool = await asyncio.to_thread(get_pool)
+            sessions = store or await asyncio.to_thread(get_webui_session_store)
+            runtime = JobRuntime(sessions, pool)
+            await runtime.start()
+            _job_runtime = runtime
+    return _job_runtime
+
 
 
 def get_pool() -> ClientPool:
@@ -46,7 +68,8 @@ def get_pool() -> ClientPool:
 async def app_lifespan(server: FastMCP):
     """Application lifespan handler for startup/shutdown events."""
     # Startup: initialize the pool and refresh the persisted model catalog.
-    pool = get_pool()
+    pool = await asyncio.to_thread(get_pool)
+    runtime = await get_job_runtime()
     registry = get_model_registry()
     await asyncio.to_thread(registry.refresh_if_stale)
 
@@ -68,7 +91,14 @@ async def app_lifespan(server: FastMCP):
         with suppress(asyncio.CancelledError):
             await model_refresh_task
         pool.stop_heartbeat()
-        logger.info("Heartbeat and model catalog refresh stopped via lifespan")
+        await asyncio.gather(*list(pool._heartbeat_tasks), return_exceptions=True)
+        await runtime.close()
+        from .chat_input import close_file_inputs
+        await close_file_inputs()
+        await asyncio.to_thread(pool.close)
+        global _job_runtime, _runtime_lock, _pool
+        _job_runtime, _runtime_lock, _pool = None, None, None
+        logger.info("Task runner, account transports and model refresh stopped")
 
 
 class AuthMiddleware(Middleware):
@@ -88,7 +118,8 @@ class AuthMiddleware(Middleware):
 
 
 # Create FastMCP instance with lifespan
-mcp = FastMCP("perplexity-mcp", lifespan=app_lifespan)
+mcp = FastMCP("perplexity-mcp", lifespan=app_lifespan,
+              instructions="Call get_skill_index to discover operating guides. Read get_tasks_use before background work or parallel conversations.")
 
 # 添加认证中间件
 mcp.add_middleware(AuthMiddleware(MCP_TOKEN))
@@ -99,20 +130,8 @@ def normalize_files(files: Optional[Union[Dict[str, Any], Iterable[str]]]) -> Di
     Accept either a dict of filename->data or an iterable of file paths,
     and normalize to the dict format expected by Client.search.
     """
-    if not files:
-        return {}
-
-    if isinstance(files, dict):
-        normalized = files
-    else:
-        normalized = {}
-        for path in files:
-            filename = os.path.basename(path)
-            with open(path, "rb") as fh:
-                normalized[filename] = fh.read()
-
-    validate_file_data(normalized)
-    return normalized
+    from .file_sources import normalize_mcp_files
+    return normalize_mcp_files(files)
 
 
 def extract_clean_result(response: Dict[str, Any]) -> Dict[str, Any]:

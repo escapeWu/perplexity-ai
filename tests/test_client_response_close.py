@@ -6,6 +6,7 @@ from typing import Iterable
 import pytest
 
 from perplexity.client import Client
+from perplexity.upstream_protocol import UpstreamError
 
 MESSAGE = b'event: message\r\ndata: {"answer": "ok"}'
 END = b"event: end_of_stream\r\n"
@@ -16,13 +17,18 @@ def message(payload) -> bytes:
 
 
 class FakeResponse:
+    status_code = 200
+    headers = {"content-type": "text/event-stream"}
+
     def __init__(self, chunks: Iterable[bytes]):
         self.chunks = chunks
         self.close_count = 0
 
     def iter_lines(self, delimiter: bytes):
-        assert delimiter == b"\r\n\r\n"
-        return iter(self.chunks)
+        assert delimiter == b"\n"
+        for chunk in self.chunks:
+            yield from chunk.split(b"\r\n")
+            yield b""
 
     def close(self) -> None:
         self.close_count += 1
@@ -102,9 +108,9 @@ def test_non_stream_response_closes_after_completion() -> None:
 
 
 def test_non_stream_response_closes_after_decode_error() -> None:
-    response = FakeResponse([b"\xff"])
+    response = FakeResponse([b"event: message\r\ndata: \xff"])
 
-    with pytest.raises(UnicodeDecodeError):
+    with pytest.raises(UpstreamError, match="Invalid SSE encoding"):
         make_client(response).search("test")
 
     assert response.close_count == 1

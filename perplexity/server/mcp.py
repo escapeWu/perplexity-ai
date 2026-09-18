@@ -4,8 +4,11 @@ Provides model discovery, parameterized search/research tools, and simple agent-
 """
 
 import asyncio
+import anyio
+from contextlib import asynccontextmanager
+from pydantic import Field
 import json
-from typing import Any, Callable, Dict, Iterable, List, Optional, Union
+from typing import Annotated, Any, Callable, Dict, Iterable, List, Optional, Union
 
 try:
     from ..config import SEARCH_MODES
@@ -39,6 +42,12 @@ except ImportError:
         WebUISessionNotFound,
         get_webui_session_store,
     )
+
+from .app import get_job_runtime
+from .files_store import attachment_input_budget
+from .file_sources import normalize_mcp_files
+from .job_store import JobError, public_job
+from .job_responses import wait_request_job, job_failure
 
 # If mcp is None (e.g. testing env), create a dummy decorator
 if mcp is None:
@@ -84,6 +93,21 @@ def list_models_tool(
     }
 
 
+@asynccontextmanager
+async def _mcp_submission(runtime, files, **inputs):
+    async with attachment_input_budget(bool(files)):
+        resolution = asyncio.create_task(asyncio.to_thread(normalize_mcp_files, files)) if files else None
+        try:
+            normalized = await asyncio.shield(resolution) if resolution is not None else {}
+            job = await runtime.submit(files=normalized, **inputs)
+            normalized.clear()
+            yield job
+        finally:
+            if resolution is not None and not resolution.done():
+                with anyio.CancelScope(shield=True):
+                    await asyncio.gather(resolution, return_exceptions=True)
+
+
 async def _run_query_async(
     query: str,
     mode: str,
@@ -94,10 +118,20 @@ async def _run_query_async(
     files: Optional[Union[Dict[str, Any], Iterable[str]]] = None,
     fallback_to_auto: bool = True,
 ) -> Dict[str, Any]:
-    """Run the shared query pipeline without blocking the MCP event loop."""
-    return await asyncio.to_thread(
-        run_query, query, mode, model, sources, language, incognito, files, fallback_to_auto
-    )
+    """Legacy tool arguments adapted to the common task runtime."""
+    try:
+        runtime = await get_job_runtime()
+        definition = get_model_registry().resolve(mode, model)
+        async with _mcp_submission(runtime, files, query=query, mode=mode, model=model,
+                model_id=definition.oai_id, search_sources=sources, language=language,
+                incognito=incognito, origin="mcp") as job:
+            final = await wait_request_job(runtime, job["id"])
+            if final["state"] != "completed":
+                raise job_failure(final)
+            return {"status": "ok", "job_id": job["id"], "session_id": job["session_id"],
+                    "data": final["snapshot"]}
+    except Exception as exc:
+        return _mcp_session_error(exc)
 
 
 def _mcp_session_error(exc: Exception, session_id: Optional[str] = None) -> Dict[str, Any]:
@@ -105,7 +139,7 @@ def _mcp_session_error(exc: Exception, session_id: Optional[str] = None) -> Dict
         error_type = "SessionNotFound"
     elif isinstance(exc, (InvalidWebUISession, ValueError)):
         error_type = "ValidationError"
-    elif isinstance(exc, SessionChatError):
+    elif isinstance(exc, (SessionChatError, JobError)):
         error_type = exc.error_type
     else:
         error_type = type(exc).__name__
@@ -114,6 +148,8 @@ def _mcp_session_error(exc: Exception, session_id: Optional[str] = None) -> Dict
         "error_type": error_type,
         "message": str(exc),
     }
+    if isinstance(exc, JobError):
+        result.update(exc.details)
     if session_id is not None:
         result["session_id"] = session_id
     return result
@@ -128,34 +164,20 @@ async def _run_v2_session_query(
     session_id: Optional[str],
     files: Optional[Union[Dict[str, Any], Iterable[str]]],
 ) -> Dict[str, Any]:
-    """Execute a v2 MCP turn through the same native session runtime as OAI/WebUI."""
+    """Execute a v2 turn through the same job runtime as OAI and WebUI."""
     resolved_session_id = session_id
     try:
-        store = get_webui_session_store()
-        session = get_or_create_session(store, session_id, origin="mcp")
-        resolved_session_id = session.id
-        data, _ = await asyncio.to_thread(
-            run_session_non_stream,
-            store,
-            session.id,
-            user_content=query,
-            query=query,
-            files=files or {},
-            mode=mode,
-            model=model,
-            model_id=model_id,
-        )
+        runtime = await get_job_runtime()
+        async with _mcp_submission(runtime, files, query=query, mode=mode, model=model,
+                model_id=model_id, session_id=session_id, user_content=query, origin="mcp") as job:
+            resolved_session_id = job["session_id"]
+            final = await wait_request_job(runtime, job["id"])
+            if final["state"] != "completed":
+                raise job_failure(final)
+            return {"status": "ok", "session_id": job["session_id"], "job_id": job["id"],
+                    "model": model_id, "data": final["snapshot"]}
     except Exception as exc:
         return _mcp_session_error(exc, resolved_session_id)
-
-    public_data = dict(data)
-    public_data.pop("_follow_up", None)
-    return {
-        "status": "ok",
-        "session_id": session.id,
-        "model": model_id,
-        "data": public_data,
-    }
 
 
 @mcp.tool(tags={"v2", "session"}, meta={"version": "v2"})
@@ -236,6 +258,137 @@ async def perplexity_research_v2(
         session_id=session_id,
         files=files,
     )
+
+
+@mcp.tool(tags={"tasks"}, annotations={"readOnlyHint": False, "destructiveHint": False})
+async def perplexity_task_submit(
+    query: Annotated[str, Field(min_length=1, max_length=10000)], model: str = "perplexity-search", thinking: bool = False,
+    session_id: Optional[str] = None, files: Optional[Dict[str, str]] = None,
+    idempotency_key: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Start a detached task and return its job_id immediately.
+
+    Different sessions may run concurrently on one account. Use an OAI model ID;
+    perplexity-deepsearch selects Research. Observe with perplexity_task_status;
+    only perplexity_task_cancel stops execution. Reuse idempotency_key on retries.
+    See resource perplexity://guides/tasks for states, retention and cancellation.
+    """
+    try:
+        runtime = await get_job_runtime()
+        mode, internal, effective = parse_oai_model_with_thinking(model, thinking, runtime.pool.get_model_subscription_tiers())
+        async with _mcp_submission(runtime, files, query=query, mode=mode, model=internal,
+                model_id=effective, session_id=session_id, origin="mcp", idempotency_key=idempotency_key,
+                detached=True) as job:
+            return {"status": "ok", **public_job(job)}
+    except Exception as exc:
+        return _mcp_session_error(exc, session_id)
+
+
+@mcp.tool(tags={"tasks"}, annotations={"readOnlyHint": True, "idempotentHint": True})
+async def perplexity_task_status(job_id: Annotated[str, Field(min_length=1, max_length=100)],
+                                 wait_seconds: Annotated[float, Field(ge=0, le=30, allow_inf_nan=False)] = 0,
+                                 include_output: bool = True) -> Dict[str, Any]:
+    """Get task state and latest output. Wait 0..30 seconds without cancelling the task.
+
+    completed is a committed full answer; failed/cancelled/timed_out/interrupted
+    may contain an incomplete draft. A wait timeout returns a still-running state.
+    """
+    import math
+    try:
+        if not math.isfinite(wait_seconds) or not 0 <= wait_seconds <= 30:
+            raise ValueError("wait_seconds must be between 0 and 30")
+        runtime = await get_job_runtime()
+        job = await runtime.get(job_id)
+        if wait_seconds:
+            try:
+                job = await asyncio.wait_for(runtime.wait(job_id), wait_seconds)
+            except asyncio.TimeoutError:
+                job = await runtime.get(job_id)
+        return {"status": "ok", **public_job(job, snapshot=include_output)}
+    except Exception as exc:
+        return _mcp_session_error(exc)
+
+
+@mcp.tool(tags={"tasks"}, annotations={"readOnlyHint": False, "idempotentHint": True})
+async def perplexity_task_cancel(job_id: Annotated[str, Field(min_length=1, max_length=100)]) -> Dict[str, Any]:
+    """Explicitly cancel one task. cancelling means cleanup is still in progress.
+
+    Other tasks using the same account continue. A completed task stays completed.
+    """
+    try:
+        runtime = await get_job_runtime()
+        return {"status": "ok", **public_job(await runtime.cancel(job_id))}
+    except Exception as exc:
+        return _mcp_session_error(exc)
+
+
+GUIDES = {
+    "tasks": {
+        "version": "1.0", "name": "tasks", "guide_tool": "get_tasks_use",
+        "resource_uri": "perplexity://guides/tasks",
+        "description": "Submit, observe, resume and cancel concurrent search tasks.",
+        "triggers": ["Before background work or parallel conversations"],
+        "required_before_tools": ["perplexity_task_submit", "perplexity_task_status", "perplexity_task_cancel"],
+        "content": """# Task workflow
+This server represents one operator through its configured API token; it is not a multi-tenant service.
+For a short complete response use perplexity_ask_v2/research_v2. For work that must outlive the call,
+submit with perplexity_task_submit and retain both job_id and session_id. status=ok means acceptance;
+only state=completed proves a complete answer and native continuation cursor were atomically saved.
+Use a different session for parallel work. Each session admits one unfinished job; an account has
+multiple slots and a separate start rate. Additional admitted work is queued.
+
+Observe with perplexity_task_status(wait_seconds<=30, include_output=false). A wait ending does not
+stop the task. Fetch include_output=true for the final answer or an explicitly incomplete draft.
+To stop, call perplexity_task_cancel and observe cancelled. cancelling is still cleaning up local I/O.
+Completed tasks stay completed. Cancellation closes local transport and releases capacity; it cannot
+roll back a request already accepted upstream or guarantee that remote computation has stopped.
+Refresh, observer disconnect and session switching leave detached tasks running. Ordinary ask_v2,
+research_v2 and legacy completion requests are request-owned and cancel on caller cancellation.
+
+Reuse idempotency_key with identical input after a lost receipt. The same key returns the same job,
+including a terminal failure; a deliberately new attempt needs a new key. session_busy returns the
+active_job_id. queue_full means retry admission later. On account_unavailable fix the bound account
+or explicitly start a new session. Empty, failed and truncated upstream replies never become success.
+failed/timed_out/cancelled/interrupted retain a draft, without advancing conversation history.
+A restart interrupts running tasks; queued tasks retain their deadline and attachments. Running work
+is never automatically replayed. Events expire after 24 hours; final answers remain until session deletion.
+An HTTP events connection starts with the authoritative snapshot/seq, then new events; replace your
+cached text on snapshots, append only newer deltas, and require a terminal state. Old event history
+may already be gone. /v1/jobs/{job_id}/events and /result observe the same execution, without resubmission.
+
+Examples:
+- Submit {\"query\":\"Explain binary search\",\"idempotency_key\":\"client-request-1\"}.
+- Observe {\"job_id\":\"<returned job_id>\",\"wait_seconds\":20,\"include_output\":false}.
+- Fetch {\"job_id\":\"<returned job_id>\",\"include_output\":true}; inspect state before using the answer.
+""",
+    }
+}
+
+
+@mcp.tool(annotations={"readOnlyHint": True, "idempotentHint": True, "openWorldHint": False})
+def get_skill_index() -> Dict[str, Any]:
+    """Discover operating guides before background or concurrent search workflows."""
+    return {"version": "1.0", "namespace": "perplexity", "discovery_tool": "get_skill_index",
+            "resource_uri": "perplexity://guides/index",
+            "skills": [{key: value for key, value in guide.items() if key != "content"} for guide in GUIDES.values()]}
+
+
+@mcp.tool(annotations={"readOnlyHint": True, "idempotentHint": True, "openWorldHint": False})
+def get_tasks_use() -> Dict[str, Any]:
+    """Read the task lifecycle guide before submitting parallel or detached work."""
+    return {"name": "tasks", "version": GUIDES["tasks"]["version"],
+            "resource_uri": GUIDES["tasks"]["resource_uri"], "content_type": "text/markdown",
+            "content": GUIDES["tasks"]["content"]}
+
+
+if hasattr(mcp, "resource"):
+    @mcp.resource("perplexity://guides/tasks", mime_type="text/markdown")
+    def task_guide() -> str:
+        return GUIDES["tasks"]["content"]
+
+    @mcp.resource("perplexity://guides/index", mime_type="application/json")
+    def guide_index() -> str:
+        return json.dumps(get_skill_index.fn())
 
 
 @_deprecated_tool("GET /v1/models")

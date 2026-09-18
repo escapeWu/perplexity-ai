@@ -21,54 +21,22 @@ def make_pool(client_id="account-a"):
 
 
 @pytest.mark.asyncio
-async def test_ask_v2_defaults_model_returns_session_and_continues(tmp_path):
-    store = WebUISessionStore(tmp_path / "mcp-sessions.sqlite3")
-    pool = make_pool()
-    responses = [
-        {
-            "status": "ok",
-            "data": {
-                "answer": "First answer",
-                "sources": [],
-                "_follow_up": {"backend_uuid": "backend-1", "attachments": []},
-            },
-        },
-        {
-            "status": "ok",
-            "data": {
-                "answer": "Second answer",
-                "sources": [],
-                "_follow_up": {"backend_uuid": "backend-2", "attachments": []},
-            },
-        },
-    ]
-
-    with (
-        patch.object(mcp_tools, "get_webui_session_store", return_value=store),
-        patch.object(mcp_tools, "get_pool", return_value=pool),
-        patch("perplexity.server.session_runtime.get_pool", return_value=pool),
-        patch("perplexity.server.session_runtime.run_query", side_effect=responses) as run,
-    ):
-        first = await mcp_tools.perplexity_ask_v2.fn(" First question ")
-        second = await mcp_tools.perplexity_ask_v2.fn(
-            "Second question", session_id=first["session_id"]
-        )
-
+async def test_ask_v2_defaults_model_returns_session_and_continues(api_runtime):
+    source = api_runtime.test_upstream
+    source.release["First question"].set()
+    source.release["Second question"].set()
+    first = await mcp_tools.perplexity_ask_v2.fn(" First question ")
+    second = await mcp_tools.perplexity_ask_v2.fn("Second question", session_id=first["session_id"])
     assert first["status"] == "ok"
     assert first["model"] == "perplexity-search"
     assert "_follow_up" not in first["data"]
     assert second["session_id"] == first["session_id"]
-    assert second["data"]["answer"] == "Second answer"
-    session = store.get_session(first["session_id"])
+    assert second["data"]["answer"] == "Second question partial complete"
+    session = api_runtime.sessions.get_session(first["session_id"])
     assert session.origin == "mcp"
-    assert session.client_id == "account-a"
-    assert session.backend_uuid == "backend-2"
-    assert run.call_args_list[0].args[0] == "First question"
-    assert run.call_args_list[1].args[8] == "account-a"
-    assert run.call_args_list[1].args[9] == {
-        "backend_uuid": "backend-1",
-        "attachments": [],
-    }
+    assert session.client_id == "one-account"
+    assert session.backend_uuid == "backend-Second question"
+    assert source.calls[1]["follow_up"] == {"backend_uuid": "backend-First question", "attachments": []}
 
 
 @pytest.mark.asyncio
@@ -124,16 +92,9 @@ async def test_research_v2_uses_deep_research_model(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_ask_v2_unknown_session_returns_structured_error(tmp_path):
-    store = WebUISessionStore(tmp_path / "mcp-sessions.sqlite3")
-    pool = make_pool()
+async def test_ask_v2_unknown_session_returns_structured_error(api_runtime):
     session_id = "sess_00000000000000000000000000000000"
-
-    with (
-        patch.object(mcp_tools, "get_webui_session_store", return_value=store),
-        patch.object(mcp_tools, "get_pool", return_value=pool),
-    ):
-        result = await mcp_tools.perplexity_ask_v2.fn("hello", session_id=session_id)
+    result = await mcp_tools.perplexity_ask_v2.fn("hello", session_id=session_id)
 
     assert result == {
         "status": "error",

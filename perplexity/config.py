@@ -292,8 +292,8 @@ ALLOWED_FILE_EXTENSIONS: frozenset = frozenset(
 
 # Logging Configuration
 LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-LOG_LEVEL = "DEBUG"
-LOG_FILE = "perplexity.log"
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+LOG_FILE = os.getenv("LOG_FILE", "perplexity.log")
 
 # Admin Authentication
 # Set this environment variable to enable admin authentication for pool management

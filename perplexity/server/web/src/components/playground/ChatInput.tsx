@@ -173,6 +173,8 @@ interface ChatInputProps {
   pendingFiles?: File[]
   onAddFiles?: (files: File[]) => void
   onRemoveFile?: (index: number) => void
+  draft?: string
+  onDraftChange?: (value: string) => void
 }
 
 export function ChatInput({
@@ -191,9 +193,19 @@ export function ChatInput({
   onStop,
   pendingFiles = [],
   onAddFiles,
-  onRemoveFile
+  onRemoveFile,
+  draft,
+  onDraftChange
 }: ChatInputProps) {
-  const [value, setValue] = useState('')
+  const [localValue, setLocalValue] = useState('')
+  const value = draft ?? localValue
+  const setValue = useCallback(
+    (next: string) => {
+      setLocalValue(next)
+      onDraftChange?.(next)
+    },
+    [onDraftChange]
+  )
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleSend = useCallback(() => {
@@ -201,7 +213,7 @@ export function ChatInput({
       onSend(value)
       setValue('')
     }
-  }, [value, disabled, onSend, pendingFiles.length])
+  }, [value, disabled, onSend, pendingFiles.length, setValue])
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
