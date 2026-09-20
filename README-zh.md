@@ -86,6 +86,7 @@ python3 "$SKILL_DIR/scripts/cli.py" ask "本周有哪些重要变化？请引用
 <img width="1894" height="989" alt="image" src="https://github.com/user-attachments/assets/4a495432-8305-4820-8b4a-d7e54986ba45" />
 
 ## 最新动态（What's New）
++ **2026-09-20**：v2.0.0 — **底层运行时重写**：以可持久化、可观测的任务运行时替代按请求阻塞式聊天链路，统一 OAI、MCP 与 WebUI 执行路径；新增账号绑定并发、优先级队列、超时与幂等控制、事件留存、流式/结果恢复、严格上游校验、输入与快照边界、原子持久化，以及观察者断开后仍可继续的后台任务。
 + **2026-08-16**：v1.15.0 — 新增与 OpenAI 格式对齐的 v2 MCP ask/research 工具及 REST 会话续聊，实现会话与账号绑定；更新动态模型目录、标记旧 MCP 工具即将废弃，并让 Playground 模型与 Thinking 控件对齐 Perplexity WebUI。
 + **2026-08-13**：v1.14.0 — Playground 新增服务端持久化会话、响应式会话侧边栏和 Perplexity 原生 follow-up；每个会话首次发送后永久绑定一个账号，禁止跨账号故障转移。
 + **2026-08-12**：v1.13.3 — 升级 curl-cffi 浏览器指纹，避免 Grok 4.5 和 Claude Sonnet 5 请求被静默回退到 Best/turbo；当上游再次降级时，保留请求模型与实际模型元数据并输出服务端告警。
