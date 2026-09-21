@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fixed-model REST client for the self-hosted escapeWu/perplexity-ai service."""
+"""Small REST compatibility client for the self-hosted escapeWu/perplexity-ai service."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from urllib.request import Request, urlopen
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "config.json"
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 DEFAULT_TIMEOUT_SECONDS = 300.0
-ASK_MODEL = "grok-4-6"
+ASK_MODEL = "perplexity-search"
 RESEARCH_MODEL = "perplexity-deepsearch"
 MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 PLACEHOLDER_KEYS = {"YOUR_MCP_TOKEN", "YOUR_API_KEY", "<MCP_TOKEN>", ""}
@@ -225,7 +225,7 @@ def run_chat(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Call fixed Grok 4.6 Ask or Perplexity Deep Research routing"
+        description="Call Perplexity Ask or Deep Research through the OpenAI-compatible endpoint"
     )
     parser.add_argument(
         "--config",
@@ -235,13 +235,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    ask = subparsers.add_parser("ask", help="search with fixed model grok-4-6")
+    ask = subparsers.add_parser(
+        "ask", help="focused search with the default perplexity-search model"
+    )
     ask.add_argument("query", help="latest user question or follow-up")
+    ask.add_argument("--model", help="exact OAI model ID (default: perplexity-search)")
     ask.add_argument(
         "--thinking",
         action=argparse.BooleanOptionalAction,
-        default=True,
-        help="enable Grok thinking (default: enabled)",
+        default=False,
+        help="enable the selected model's paired thinking variant (default: disabled)",
     )
     ask.add_argument("--session-id", help="continue an existing Ask session")
 
@@ -262,7 +265,11 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         config = load_config(args.config)
-        model = ASK_MODEL if args.command == "ask" else RESEARCH_MODEL
+        model = (
+            args.model
+            if args.command == "ask" and args.model
+            else ASK_MODEL if args.command == "ask" else RESEARCH_MODEL
+        )
         thinking = args.thinking if args.command == "ask" else None
         result = run_chat(
             config,

@@ -1,4 +1,4 @@
 interface:
   display_name: "Perplexity Search"
-  short_description: "Fixed Grok Ask and Deep Research sessions"
-  default_prompt: "Use $perplexity-search by default whenever an answer depends on current public-web information. Route focused searches to fixed grok-4-6 Ask with thinking enabled, route broad investigations to perplexity-deepsearch, preserve citations, and reuse session_id for targeted same-topic follow-ups."
+  short_description: "MCP v2 Ask, Research, and task sessions"
+  default_prompt: "Use $perplexity-search whenever an answer depends on current public-web information. Prefer perplexity_ask_v2 for focused searches and perplexity_research_v2 for broad investigations; preserve sources and reuse the returned session_id for same-topic follow-ups. Use the task tools only for detached or concurrent work, after reading their MCP guide."

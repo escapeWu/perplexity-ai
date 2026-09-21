@@ -63,16 +63,16 @@ volumes, or replace server secrets and persistent data as part of routine deploy
 
 ## Agent Search Skill
 
-This repository includes [`.agents/skills/perplexity-search/SKILL.md`](.agents/skills/perplexity-search/SKILL.md) as the default companion skill for Agents that need current public-web information. It provides a ready-to-run standard-library CLI, fixed Grok 4.6 Ask and Deep Research routing, cited output, and reusable native sessions without requiring Agents to construct REST requests manually.
+This repository includes [`.agents/skills/perplexity-search/SKILL.md`](.agents/skills/perplexity-search/SKILL.md) as the default companion skill for Agents that need current public-web information. It is MCP-first: use `perplexity_ask_v2` for focused searches, `perplexity_research_v2` for broad investigations, and the task tools only for detached or concurrent work. The skill preserves the top-level `session_id`, reads answers from `data.answer`, and keeps source URLs from `data.sources`.
 
-Set `PPLX_BASE_URL` and `MCP_TOKEN` in the environment, then run from the repository root:
+The bundled standard-library CLI remains a narrower compatibility path for environments without the MCP v2 tools:
 
 ```bash
 SKILL_DIR="$PWD/.agents/skills/perplexity-search"
 python3 "$SKILL_DIR/scripts/cli.py" ask "What changed this week? Cite primary sources."
 ```
 
-Use `ask` for focused current searches and `research` for broad multi-source investigations. The checked-in configuration is sanitized and contains no deployment credentials.
+Set `PPLX_BASE_URL` and `MCP_TOKEN` for the CLI. The checked-in configuration is sanitized and contains no deployment credentials.
 
 ## Screenshots
 **ADMIN Panel**
@@ -229,8 +229,12 @@ Configure multiple Perplexity account tokens to enable load balancing and high a
 
 | Tool | When to use |
 |------|-------------|
-| `perplexity_ask_v2` | Ask/search with an optional OAI model ID, `thinking`, files, and `session_id` |
-| `perplexity_research_v2` | Run Deep Research with optional files and `session_id` |
+| `perplexity_ask_v2` | Focused current search with optional OAI model ID, `thinking`, files, and `session_id` |
+| `perplexity_research_v2` | Deep Research with optional files and `session_id` |
+| `get_skill_index`, `get_tasks_use` | Discover and read the detached-task operating guide |
+| `perplexity_task_submit` | Start a detached search or research task and return `job_id` |
+| `perplexity_task_status` | Observe a detached task; only `state: completed` is complete |
+| `perplexity_task_cancel` | Explicitly cancel a detached task |
 
 `perplexity_ask_v2` defaults to `perplexity-search` when `model` is omitted.
 Its `model` values are the same IDs returned by `/v1/models`, for example
