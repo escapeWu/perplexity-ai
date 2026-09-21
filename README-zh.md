@@ -60,16 +60,27 @@
 
 ## Agent 搜索 Skill
 
-仓库内置 [`.agents/skills/perplexity-search/SKILL.md`](.agents/skills/perplexity-search/SKILL.md)，作为 Agent 获取当前公网信息时的默认配套 skill。它以 MCP v2 为主：聚焦搜索使用 `perplexity_ask_v2`，广泛调研使用 `perplexity_research_v2`，只有需要脱离调用方继续运行或并发时才使用 task 工具。Skill 会保存顶层 `session_id`，从 `data.answer` 读取答案，并保留 `data.sources` 中的来源链接。
+仓库内置 [`.agents/skills/perplexity-search/SKILL.md`](.agents/skills/perplexity-search/SKILL.md)，供 Agent 获取当前公网信息。MCP 与 REST 共用一套调用契约：内置 `PerplexityRestClient` 提供与 MCP tool 相同的 `perplexity_ask_v2`、`perplexity_research_v2` 和后台任务方法名、参数、会话行为及返回结构。
 
-没有 MCP v2 工具时，仓库内置的标准库 CLI 作为较窄的兼容入口：
+不使用 MCP 传输时，直接使用标准库 Python REST client：
 
-```bash
-SKILL_DIR="$PWD/.agents/skills/perplexity-search"
-python3 "$SKILL_DIR/scripts/cli.py" ask "本周有哪些重要变化？请引用一手来源。"
+```python
+import sys
+sys.path.insert(0, ".agents/skills/perplexity-search/scripts")
+from client import PerplexityRestClient
+
+client = PerplexityRestClient.from_config()
+result = client.perplexity_ask_v2("本周有哪些重要变化？请引用一手来源。")
 ```
 
-CLI 使用 `PPLX_BASE_URL` 和 `MCP_TOKEN`，仓库内配置已脱敏，不包含部署凭据。
+命令行也使用相同的操作名：
+
+```bash
+python3 .agents/skills/perplexity-search/scripts/client.py \
+  perplexity_ask_v2 "本周有哪些重要变化？请引用一手来源。"
+```
+
+REST 使用 `PPLX_BASE_URL` 和 `MCP_TOKEN`，仓库内配置已脱敏，不包含部署凭据。
 
 ## 展示
 **ADMIN 管理面板**
@@ -316,6 +327,8 @@ API/MCP 创建的会话使用同一 SQLite 数据库和账号绑定规则，但�
 | `perplexity_task_submit` | 创建脱离调用方运行的搜索/调研任务并返回 `job_id` |
 | `perplexity_task_status` | 查看后台任务；只有 `state: completed` 才表示完整结果 |
 | `perplexity_task_cancel` | 显式取消后台任务 |
+
+配套 Python REST client 暴露同名方法，并把 REST 响应统一成相同的顶层 `status`、`session_id`、`job_id`、`model` 以及 `data`/`snapshot` 约定。集成方切换传输方式时无需更换搜索工作流。
 
 `perplexity_ask_v2` 不传 `model` 时默认使用 `perplexity-search`。模型参数与
 `/v1/models` 返回的 OAI ID 完全一致，例如 `gpt-5-6-terra`；传入

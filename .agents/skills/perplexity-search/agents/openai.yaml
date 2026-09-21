@@ -1,4 +1,4 @@
 interface:
   display_name: "Perplexity Search"
-  short_description: "MCP v2 Ask, Research, and task sessions"
-  default_prompt: "Use $perplexity-search whenever an answer depends on current public-web information. Prefer perplexity_ask_v2 for focused searches and perplexity_research_v2 for broad investigations; preserve sources and reuse the returned session_id for same-topic follow-ups. Use the task tools only for detached or concurrent work, after reading their MCP guide."
+  short_description: "Unified MCP v2 and Python REST search"
+  default_prompt: "Use $perplexity-search whenever an answer depends on current public-web information. Use the available transport through the same perplexity_ask_v2, perplexity_research_v2, and detached-task operation names; preserve sources and reuse session_id for same-topic follow-ups."

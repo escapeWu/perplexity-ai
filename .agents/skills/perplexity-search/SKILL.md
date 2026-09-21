@@ -1,83 +1,101 @@
 ---
 name: perplexity-search
-description: Use the project's perplexity-mcp v2 tools for current public-web search, fact checking, cited comparisons, and research. Trigger whenever an answer depends on recent or changing information, even if the user does not name Perplexity or web search. Prefer perplexity_ask_v2 for focused work, perplexity_research_v2 for broad investigations, and the detached task tools only when work must survive the caller or run concurrently.
+description: Search the current public web with citations through either the perplexity-mcp v2 tools or the bundled Python REST client. Use for recent information, news, fact checks, source-backed comparisons, research, file-assisted questions, native follow-ups, and detached tasks. Both transports expose the same perplexity_ask_v2, perplexity_research_v2, and task method names and response shapes.
 metadata:
   version: "3.0.0"
 ---
 
 # Perplexity Search
 
-Use the connected `perplexity-mcp` server as the canonical interface. Call the MCP tools directly; do not construct REST requests or use the deprecated MCP aliases for ordinary work.
+Use one workflow regardless of transport. A connected `perplexity-mcp` server exposes tools directly; the bundled `scripts/client.py` exposes matching Python methods over REST.
 
-## Select a tool
-
-| Need | Tool | Notes |
+| Operation | MCP tool | Python REST method |
 |---|---|---|
-| Focused current answer, news, fact check, comparison, or cited lookup | `perplexity_ask_v2` | Returns a complete answer and sources |
-| Broad investigation, many subtopics, or report-like synthesis | `perplexity_research_v2` | Runs Deep Research and may take longer |
-| Work that must outlive the caller, or independent concurrent work | `perplexity_task_submit` | Returns a `job_id`; observe it explicitly |
-| Observe a detached task | `perplexity_task_status` | Only `state: completed` is a complete answer |
-| Explicitly stop a detached task | `perplexity_task_cancel` | Cancellation is not rollback |
+| Focused search or cited answer | `perplexity_ask_v2` | `client.perplexity_ask_v2(...)` |
+| Broad Deep Research | `perplexity_research_v2` | `client.perplexity_research_v2(...)` |
+| Submit detached work | `perplexity_task_submit` | `client.perplexity_task_submit(...)` |
+| Observe detached work | `perplexity_task_status` | `client.perplexity_task_status(...)` |
+| Cancel detached work | `perplexity_task_cancel` | `client.perplexity_task_cancel(...)` |
 
-Use the first two tools for normal requests. Do not submit a detached task just to make a normal call asynchronous.
+Choose the available transport, then keep the same operation names, arguments, session rules, and output handling. Do not switch to legacy MCP tools such as `search`, `research`, or `perplexity_search`; they are deprecated.
 
-The legacy tools `search`, `research`, `perplexity_ask`, `perplexity_search`, `perplexity_reason`, `perplexity_research`, `list_models`, and `toggle_builtin_tools` are deprecated and marked `pending_removal`. Use them only when a caller explicitly requires compatibility with an older server.
+## Python REST client
 
-## Standard MCP workflow
+The client uses only the Python standard library. Load it from this skill's `scripts` directory:
 
-1. Decide between focused Ask and broad Research from the requested scope, not only from words such as "search" or "research".
-2. Put the date range, comparison dimensions, constraints, desired evidence, and output shape in the first query.
-3. Call the selected v2 tool with only the current user request.
-4. Check that the result has `status: "ok"` before using it.
-5. Read the answer from `data.answer` and preserve `data.sources` as direct URLs in the final response. Separate sourced facts from your own synthesis.
-6. If a concrete gap remains, continue the same tool with the returned top-level `session_id` and send only the latest focused instruction. Use at most one or two useful continuations.
+```python
+import sys
+from pathlib import Path
 
-Example focused call:
+skill_dir = Path(".agents/skills/perplexity-search").resolve()
+sys.path.insert(0, str(skill_dir / "scripts"))
 
-```json
-{
-  "query": "What changed in Python packaging this month? Cite primary sources and include exact release dates."
-}
+from client import PerplexityRestClient
+
+client = PerplexityRestClient.from_config(skill_dir / "config.json")
+result = client.perplexity_ask_v2(
+    "What changed in Python packaging this month? Cite primary sources."
+)
 ```
 
-Call that payload through `perplexity_ask_v2`.
+Configuration is shared by every REST method:
 
-Example broad call:
+- `PPLX_BASE_URL`: service root, with or without `/v1`; defaults to `http://127.0.0.1:8000`.
+- `MCP_TOKEN` or `PPLX_API_KEY`: bearer token; `MCP_TOKEN` takes precedence.
+- `config.json`: fallback configuration when environment variables are absent.
 
-```json
-{
-  "query": "Research the 2026 enterprise AI agent market. Compare adoption, pricing, security constraints, and primary-source evidence; return a structured report."
-}
-```
+Never print, quote, log, or commit real credentials.
 
-Call that payload through `perplexity_research_v2`.
+## Focused Ask
 
-## Models and thinking
+Use `perplexity_ask_v2` for current facts, news, comparisons, source-backed analysis, and ordinary searches.
 
-- For `perplexity_ask_v2`, omit `model` unless the user requests a specific model. Omission selects `perplexity-search`.
-- When a model is requested, pass the exact OAI model ID exposed by this server, such as `gpt-5-6-terra`; do not pass old display names such as `gpt-5.6-terra` or `grok-4.6`.
-- Set `thinking: true` only when the user wants the selected Ask model's paired thinking variant. It is a boolean, not a reasoning-effort level.
-- `perplexity_research_v2` selects `perplexity-deepsearch` itself. Do not pass `model` or `thinking` to it.
-- Do not silently switch models when a requested model is unavailable. Report the structured error and let the user choose.
-
-Example model-controlled Ask:
+MCP arguments and Python arguments are identical:
 
 ```json
 {
-  "query": "Analyze the tradeoffs and cite current primary sources.",
+  "query": "Compare the latest Python packaging changes and cite primary sources.",
   "model": "gpt-5-6-terra",
-  "thinking": true
+  "thinking": true,
+  "session_id": null,
+  "files": null
 }
 ```
 
-## Sessions and follow-ups
+```python
+result = client.perplexity_ask_v2(
+    query="Compare the latest Python packaging changes and cite primary sources.",
+    model="gpt-5-6-terra",
+    thinking=True,
+)
+```
 
-Both v2 tools create a native session when `session_id` is omitted and return the ID at the top level:
+Omit `model` to use `perplexity-search`. When selecting a model, pass the exact OAI model ID exposed by the server. Set `thinking=True` to select its paired thinking variant. Do not pass `perplexity-deepsearch` to Ask.
+
+## Deep Research
+
+Use `perplexity_research_v2` for broad investigations with several subtopics, many sources, or report-like synthesis.
+
+```python
+result = client.perplexity_research_v2(
+    query=(
+        "Research the 2026 enterprise AI agent market. Compare adoption, pricing, "
+        "security constraints, and primary-source evidence."
+    )
+)
+```
+
+This operation always selects `perplexity-deepsearch`; it does not accept `model` or `thinking`.
+
+## Response contract
+
+Both transports return the same success shape for Ask and Research:
 
 ```json
 {
   "status": "ok",
   "session_id": "sess_...",
+  "job_id": "job_...",
   "model": "perplexity-search",
   "data": {
     "answer": "...",
@@ -86,69 +104,96 @@ Both v2 tools create a native session when `session_id` is omitted and return th
 }
 ```
 
-Keep the session ID together with the tool family (`ask` or `research`). For a follow-up:
+Check `status` before using a result. Read the answer from `data.answer`, preserve direct URLs from `data.sources`, and distinguish sourced facts from your synthesis.
+
+Failures use the same top-level convention:
 
 ```json
 {
-  "query": "Add exact dates and one primary source for each claim.",
-  "session_id": "sess_..."
+  "status": "error",
+  "error_type": "...",
+  "message": "..."
 }
 ```
 
-Reuse the same v2 tool and pass only the new instruction. Start a new session when the topic changes. A session is permanently bound to its first account and has at most one unfinished task; do not assume it can fail over or run concurrent turns. If a supplied session is unknown, expired, or unavailable, report the continuation failure instead of silently starting a new session.
+Report the non-secret error type and message. Do not silently change models, replace sessions, or treat incomplete task output as success.
+
+## Sessions
+
+Omit `session_id` to create a native session. For a same-topic follow-up, call the same operation with the returned ID and only the latest instruction:
+
+```python
+follow_up = client.perplexity_ask_v2(
+    query="Add exact release dates and one primary source per claim.",
+    session_id=result["session_id"],
+)
+```
+
+Keep the session ID with its operation family. Start a new session when the topic changes. A session is permanently bound to its first account and supports at most one unfinished task; it does not fail over or accept concurrent turns.
 
 ## Files
 
-Pass user-provided attachments through the tool's `files` argument. Do not put file contents in the query and do not invent upload URLs. The server accepts a filename-to-content object or a list of server-visible paths when its allowed roots are configured.
+Pass attachments through `files` on either Ask, Research, or task submission.
 
-Respect the server limits: at most 10 files, 20 MiB per file, 100 MiB per request, and an allowed file extension. A client-local path is not usable by a remote MCP server unless that path is also available on the server.
+For MCP, `files` follows the server tool schema. For Python REST, use either a filename-to-content mapping or an iterable of local paths:
+
+```python
+client.perplexity_ask_v2(
+    "Summarize the attached evidence and verify current claims on the web.",
+    files=["reports/evidence.pdf"],
+)
+
+client.perplexity_ask_v2(
+    "Review this note.",
+    files={"note.txt": "local text content"},
+)
+```
+
+The REST client reads local paths and sends base64 `input_file` content, so the remote server does not need access to the client's filesystem. Respect server limits: at most 10 files, 20 MiB per file, 100 MiB per request, and allowed extensions.
 
 ## Detached tasks
 
-Use detached tasks only for work that must continue after a caller disconnects, is expected to run for a long time, or consists of genuinely independent concurrent conversations.
+Use detached tasks only when work must survive caller disconnects, is expected to run for a long time, or consists of independent concurrent conversations.
 
-Before background or concurrent work, call `get_skill_index`, then read `get_tasks_use`. The guide is the contract for task states, retention, cancellation, and idempotency.
+MCP users should call `get_skill_index` and read `get_tasks_use` before the task tools. Python users call the same task operations through REST:
 
-Submit a focused task:
+```python
+accepted = client.perplexity_task_submit(
+    query="Research WebAssembly component model adoption with primary sources.",
+    model="perplexity-deepsearch",
+    idempotency_key="wasm-adoption-1",
+)
 
-```json
-{
-  "query": "Explain the current state of WebAssembly component model adoption with primary sources.",
-  "model": "perplexity-search",
-  "idempotency_key": "stable-client-request-1"
-}
+status = client.perplexity_task_status(
+    accepted["job_id"],
+    wait_seconds=20,
+    include_output=False,
+)
 ```
 
-Submit a broad detached research task by using `model: "perplexity-deepsearch"` and omit `thinking`.
+A successful submission means admission, not completion. Retain both `job_id` and `session_id`. Only `state == "completed"` is complete. Fetch output with `include_output=True`; the answer is in `snapshot.answer`. Treat `failed`, `timed_out`, `cancelled`, and `interrupted` as non-success even when a draft exists.
 
-Always retain both the returned `job_id` and `session_id`. Observe without resubmitting:
+Reuse an `idempotency_key` only to recover the same submission after a lost receipt. Use a different session for each concurrent task. Cancel explicitly when the task is no longer needed:
 
-```json
-{
-  "job_id": "job_...",
-  "wait_seconds": 20,
-  "include_output": false
-}
+```python
+client.perplexity_task_cancel(accepted["job_id"])
 ```
 
-Use `wait_seconds` from 0 through 30. Fetch `include_output: true` after the task reaches `completed`. A returned `job_id` or `status: "ok"` means admission succeeded, not that the answer is complete. Treat `failed`, `timed_out`, `cancelled`, and `interrupted` as non-success even if a draft is present. Reuse the same `idempotency_key` after a lost receipt; use a new key only for a deliberate new attempt. Use a different session for each concurrent task.
+Cancellation cannot undo upstream work already accepted.
 
-Cancel only when the user or workflow no longer needs the task, then observe until the terminal state. Cancellation can stop local execution but cannot undo upstream work already accepted.
+## Command line
 
-## Errors and output handling
-
-MCP failures are structured as `status: "error"`, with `error_type`, `message`, and sometimes `session_id` or job details. Report the non-secret error type and message. Do not expose bearer tokens, request headers, private configuration, or raw account data.
-
-Do not treat a partial draft from a failed task as a completed answer. Do not retry blindly, change model, or create a replacement session without a concrete reason.
-
-## Shell fallback
-
-Only when the MCP v2 tools are not exposed, use the bundled standard-library CLI from a repository checkout:
+The CLI uses the exact MCP tool names:
 
 ```bash
-SKILL_DIR="${SKILL_DIR:-$PWD/.agents/skills/perplexity-search}"
-python3 "$SKILL_DIR/scripts/cli.py" ask \
-  "What changed in Python packaging this month? Cite primary sources."
+python3 "$SKILL_DIR/scripts/client.py" perplexity_ask_v2 \
+  "What changed this week? Cite primary sources."
+
+python3 "$SKILL_DIR/scripts/client.py" perplexity_research_v2 \
+  "Research current enterprise AI agent adoption."
+
+python3 "$SKILL_DIR/scripts/client.py" perplexity_task_status job_... \
+  --wait-seconds 20
 ```
 
-The CLI is a narrower compatibility path for focused Ask, Deep Research, and session continuation. It does not replace the MCP task lifecycle or file contract. Keep real credentials in `MCP_TOKEN` or `PPLX_API_KEY`; never print or commit them. If the CLI cannot connect or authenticate, report that concrete non-secret failure instead of silently switching to another service.
+`cli.py` remains a compatibility entry point and dispatches to the same client. Use `client.py` for new integrations.

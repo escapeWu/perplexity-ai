@@ -63,16 +63,27 @@ volumes, or replace server secrets and persistent data as part of routine deploy
 
 ## Agent Search Skill
 
-This repository includes [`.agents/skills/perplexity-search/SKILL.md`](.agents/skills/perplexity-search/SKILL.md) as the default companion skill for Agents that need current public-web information. It is MCP-first: use `perplexity_ask_v2` for focused searches, `perplexity_research_v2` for broad investigations, and the task tools only for detached or concurrent work. The skill preserves the top-level `session_id`, reads answers from `data.answer`, and keeps source URLs from `data.sources`.
+This repository includes [`.agents/skills/perplexity-search/SKILL.md`](.agents/skills/perplexity-search/SKILL.md) for Agents that need current public-web information. MCP and REST use one call contract: the bundled `PerplexityRestClient` exposes the same `perplexity_ask_v2`, `perplexity_research_v2`, and detached-task method names, arguments, session behavior, and result shapes as the MCP tools.
 
-The bundled standard-library CLI remains a narrower compatibility path for environments without the MCP v2 tools:
+Use the standard-library Python REST client when MCP is not the selected transport:
 
-```bash
-SKILL_DIR="$PWD/.agents/skills/perplexity-search"
-python3 "$SKILL_DIR/scripts/cli.py" ask "What changed this week? Cite primary sources."
+```python
+import sys
+sys.path.insert(0, ".agents/skills/perplexity-search/scripts")
+from client import PerplexityRestClient
+
+client = PerplexityRestClient.from_config()
+result = client.perplexity_ask_v2("What changed this week? Cite primary sources.")
 ```
 
-Set `PPLX_BASE_URL` and `MCP_TOKEN` for the CLI. The checked-in configuration is sanitized and contains no deployment credentials.
+The command line uses the same operation names:
+
+```bash
+python3 .agents/skills/perplexity-search/scripts/client.py \
+  perplexity_ask_v2 "What changed this week? Cite primary sources."
+```
+
+Set `PPLX_BASE_URL` and `MCP_TOKEN` for REST use. The checked-in configuration is sanitized and contains no deployment credentials.
 
 ## Screenshots
 **ADMIN Panel**
@@ -235,6 +246,8 @@ Configure multiple Perplexity account tokens to enable load balancing and high a
 | `perplexity_task_submit` | Start a detached search or research task and return `job_id` |
 | `perplexity_task_status` | Observe a detached task; only `state: completed` is complete |
 | `perplexity_task_cancel` | Explicitly cancel a detached task |
+
+The companion Python REST client exposes methods with these same names and normalizes REST responses to the same top-level `status`, `session_id`, `job_id`, `model`, and `data`/`snapshot` conventions. This lets integrations change transport without changing their search workflow.
 
 `perplexity_ask_v2` defaults to `perplexity-search` when `model` is omitted.
 Its `model` values are the same IDs returned by `/v1/models`, for example
