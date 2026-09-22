@@ -56,11 +56,26 @@ class Client:
         self._user_info = {}
         self.subscription_tier = normalize_subscription_tier(None, own_account=self.own)
         try:
-            response = self.session.get(ENDPOINT_AUTH_SESSION, timeout=30)
+            response = self._probe_session()
             if response is not None and response.ok:
                 self._update_user_info(response.json())
         except Exception:
             logger.debug("Account metadata was unavailable during initialization")
+
+    def _account_hint(self) -> str:
+        # Perplexity's session middleware selects the account via the
+        # x-pplx-account header; the id is recoverable from our own cookies.
+        hint = self._cookies.get("__Host-pplx-last-active-account")
+        if not hint:
+            for name in self._cookies:
+                if name.startswith("__Secure-pplx.session."):
+                    hint = name[len("__Secure-pplx.session."):]
+                    break
+        return hint or ""
+
+    def _probe_session(self):
+        headers = {"x-pplx-account": self._account_hint()} if self._account_hint() else {}
+        return self.session.get(ENDPOINT_AUTH_SESSION, headers=headers, timeout=30)
 
     @property
     def cookies(self) -> dict:
@@ -88,7 +103,7 @@ class Client:
 
     def get_user_info(self) -> dict:
         try:
-            response = self.session.get(ENDPOINT_AUTH_SESSION, timeout=30)
+            response = self._probe_session()
             if response.ok:
                 data = response.json()
                 self._update_user_info(data)

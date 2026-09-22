@@ -18,7 +18,10 @@ async def refresh_account(client: Client):
     generation, cookies = client.cookie_snapshot()
     async with AsyncSession(headers=DEFAULT_HEADERS.copy(), cookies=scoped_cookies(cookies), impersonate="chrome",
                             proxy=SOCKS_PROXY.split("#")[0] if SOCKS_PROXY else None) as session:
-        response = await session.get(ENDPOINT_AUTH_SESSION, timeout=20)
+        # Account-scoped session requires x-pplx-account; recover the id from cookies.
+        hint = client._account_hint()
+        req_headers = {"x-pplx-account": hint} if hint else None
+        response = await session.get(ENDPOINT_AUTH_SESSION, headers=req_headers, timeout=20)
         if response.status_code in (401, 403):
             raise UpstreamError("Account authentication failed", "account_unavailable")
         if response.status_code == 429:
