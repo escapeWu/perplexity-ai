@@ -302,13 +302,23 @@ class ClientPool:
             csrf_token = token_entry.get("csrf_token")
             session_token = token_entry.get("session_token")
 
-            if not all([client_id, csrf_token, session_token]):
-                raise ValueError("Invalid token entry: id, csrf_token and session_token are required")
+            cookies = {}
+            if csrf_token:
+                cookies["next-auth.csrf-token"] = csrf_token
+            if session_token:
+                cookies["__Secure-next-auth.session-token"] = session_token
+            # Accept arbitrary extra cookies (e.g. the rolling __Secure-pplx.session.<uuid>).
+            extra_cookies = token_entry.get("cookies")
+            has_extra = isinstance(extra_cookies, dict) and any(extra_cookies.values())
+            if isinstance(extra_cookies, dict):
+                cookies.update({str(k): str(v) for k, v in extra_cookies.items() if v})
 
-            cookies = {
-                "next-auth.csrf-token": csrf_token,
-                "__Secure-next-auth.session-token": session_token,
-            }
+            # A legacy entry requires both legacy tokens; otherwise a non-empty
+            # cookie set (e.g. a rolling session) is sufficient.
+            if not client_id or not ((csrf_token and session_token) or has_extra):
+                raise ValueError(
+                    "Invalid token entry: id with csrf/session pair or cookies required")
+
             self._add_client_internal(client_id, cookies)
             wrapper = self.clients[client_id]
             wrapper.enabled = token_entry.get("enabled", True)
@@ -323,7 +333,8 @@ class ClientPool:
         self.clients[client_id] = wrapper
         self._rotation_order.append(client_id)
 
-    def add_client(self, client_id: str, csrf_token: str, session_token: str) -> Dict[str, Any]:
+    def add_client(self, client_id: str, csrf_token: str, session_token: str,
+                   extra_cookies: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
         """
         Add a new client to the pool at runtime.
 
@@ -337,10 +348,20 @@ class ClientPool:
                     "message": f"Client '{client_id}' already exists",
                 }
 
-        cookies = {
-            "next-auth.csrf-token": csrf_token,
-            "__Secure-next-auth.session-token": session_token,
-        }
+        cookies = {}
+        if csrf_token:
+            cookies["next-auth.csrf-token"] = csrf_token
+        if session_token:
+            cookies["__Secure-next-auth.session-token"] = session_token
+        # Accept arbitrary extra cookies (e.g. the rolling __Secure-pplx.session.<uuid>).
+        has_extra = isinstance(extra_cookies, dict) and any(extra_cookies.values())
+        if isinstance(extra_cookies, dict):
+            cookies.update({str(k): str(v) for k, v in extra_cookies.items() if v})
+        # A legacy entry requires both legacy tokens; otherwise a non-empty
+        # cookie set (e.g. a rolling session) is sufficient.
+        if not client_id or not ((csrf_token and session_token) or has_extra):
+            return {"status": "error",
+                    "message": "Provide a csrf/session pair or non-empty cookies"}
         # Client construction performs an auth-session request to discover the
         # subscription tier. Keep that network I/O outside the pool lock.
         client = Client(cookies)
@@ -1411,11 +1432,15 @@ class ClientPool:
             csrf_token = token_entry.get("csrf_token")
             session_token = token_entry.get("session_token")
 
-            if not all([client_id, csrf_token, session_token]):
+            raw_cookies = token_entry.get("cookies")
+            has_cookies = isinstance(raw_cookies, dict) and any(raw_cookies.values())
+            if not client_id or not ((csrf_token and session_token) or has_cookies):
                 errors.append(f"Invalid token entry: missing required fields")
                 continue
 
-            result = self.add_client(client_id, csrf_token, session_token)
+            extra = token_entry.get("cookies")
+            extra = extra if isinstance(extra, dict) else None
+            result = self.add_client(client_id, csrf_token, session_token, extra)
             if result.get("status") == "ok":
                 added.append(client_id)
             else:
@@ -1458,9 +1483,13 @@ class ClientPool:
                     "concurrency": self._concurrency_config.copy(), "tokens": []}
                 for client_id, wrapper in self.clients.items():
                     cookies = wrapper.client.cookies
+                    # Persist non-legacy cookies (e.g. the rolling session) too.
+                    extra = {k: v for k, v in cookies.items()
+                             if k not in ("next-auth.csrf-token", "__Secure-next-auth.session-token")}
                     config["tokens"].append({
                         "id": client_id, "csrf_token": cookies.get("next-auth.csrf-token", ""),
                         "session_token": cookies.get("__Secure-next-auth.session-token", ""),
+                        "cookies": extra,
                         "enabled": wrapper.enabled, "concurrency": wrapper.concurrency.copy(),
                     })
             write_config(self._config_path, config)
