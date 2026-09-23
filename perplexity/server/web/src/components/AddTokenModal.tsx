@@ -1,34 +1,61 @@
 import { useState, useRef } from 'react'
 import { Modal } from './ui/Modal'
 import { TokenConfig } from 'lib/api'
+import { hasAccountAuth, parseAuthCookies, TokenAuth } from 'lib/tokenCookies'
 
 interface AddTokenModalProps {
   isOpen: boolean
   onClose: () => void
-  onSubmit: (id: string, csrf: string, session: string) => void
+  onSubmit: (id: string, auth: TokenAuth) => void
   onImportConfig?: (tokens: TokenConfig[]) => void
 }
 
 export function AddTokenModal({ isOpen, onClose, onSubmit, onImportConfig }: AddTokenModalProps) {
-  const [form, setForm] = useState({ id: '', csrf: '', session: '' })
+  const [form, setForm] = useState({
+    id: '',
+    csrf: '',
+    session: '',
+    cookies: ''
+  })
   const [mode, setMode] = useState<'manual' | 'upload'>('manual')
+  const [authMode, setAuthMode] = useState<'cookies' | 'legacy'>('cookies')
   const [uploadedTokens, setUploadedTokens] = useState<TokenConfig[] | null>(null)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const parsedCookies = form.cookies.trim()
+    ? parseAuthCookies(form.cookies)
+    : null
+  const detectedCookies = parsedCookies
+    ? [
+        ...(parsedCookies.csrf_token ? ['next-auth.csrf-token'] : []),
+        ...(parsedCookies.session_token
+          ? ['__Secure-next-auth.session-token']
+          : []),
+        ...Object.keys(parsedCookies.cookies ?? {})
+      ]
+    : []
+  const manualAuth: TokenAuth | null =
+    authMode === 'cookies'
+      ? parsedCookies
+      : form.csrf && form.session
+        ? { csrf_token: form.csrf, session_token: form.session }
+        : null
 
   const handleSubmit = () => {
     if (mode === 'upload' && uploadedTokens && onImportConfig) {
       onImportConfig(uploadedTokens)
       resetForm()
-    } else if (mode === 'manual' && form.id && form.csrf && form.session) {
-      onSubmit(form.id, form.csrf, form.session)
+    } else if (mode === 'manual' && form.id && manualAuth) {
+      onSubmit(form.id, manualAuth)
       resetForm()
     }
   }
 
   const resetForm = () => {
-    setForm({ id: '', csrf: '', session: '' })
+    setForm({ id: '', csrf: '', session: '', cookies: '' })
     setMode('manual')
+    setAuthMode('cookies')
     setUploadedTokens(null)
     setUploadError(null)
   }
@@ -61,8 +88,10 @@ export function AddTokenModal({ isOpen, onClose, onSubmit, onImportConfig }: Add
 
         // Validate token structure
         for (const token of tokens) {
-          if (!token.id || !token.csrf_token || !token.session_token) {
-            throw new Error('Invalid token entry: missing required fields (id, csrf_token, session_token)')
+          if (!token.id || !hasAccountAuth(token)) {
+            throw new Error(
+              'Invalid token entry: id plus csrf_token/session_token or cookies required'
+            )
           }
         }
 
@@ -81,7 +110,7 @@ export function AddTokenModal({ isOpen, onClose, onSubmit, onImportConfig }: Add
 
   const isSubmitDisabled = mode === 'upload'
     ? !uploadedTokens || !onImportConfig
-    : !form.id || !form.csrf || !form.session
+    : !form.id || !manualAuth
 
   return (
     <Modal
@@ -133,30 +162,87 @@ export function AddTokenModal({ isOpen, onClose, onSubmit, onImportConfig }: Add
                 className="w-full bg-gray-900 border-b-2 border-gray-700 p-3 text-white font-mono focus:outline-none focus:border-acid focus:bg-gray-800 transition-colors placeholder-gray-700"
               />
             </div>
-            <div>
-              <label className="block font-mono text-xs text-acid mb-2 uppercase tracking-widest">
-                CSRF Token
-              </label>
-              <textarea
-                rows={2}
-                placeholder="ENCRYPTED_STRING..."
-                value={form.csrf}
-                onChange={(e) => setForm({ ...form, csrf: e.target.value })}
-                className="w-full bg-gray-900 border-b-2 border-gray-700 p-3 text-white font-mono focus:outline-none focus:border-acid focus:bg-gray-800 transition-colors placeholder-gray-700 text-xs"
-              ></textarea>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setAuthMode('cookies')}
+                className={`px-3 py-1 font-mono text-xs uppercase transition-colors ${
+                  authMode === 'cookies'
+                    ? 'bg-gray-700 text-acid'
+                    : 'bg-gray-900 text-gray-500 hover:bg-gray-800'
+                }`}
+              >
+                Session Cookies
+              </button>
+              <button
+                onClick={() => setAuthMode('legacy')}
+                className={`px-3 py-1 font-mono text-xs uppercase transition-colors ${
+                  authMode === 'legacy'
+                    ? 'bg-gray-700 text-acid'
+                    : 'bg-gray-900 text-gray-500 hover:bg-gray-800'
+                }`}
+              >
+                Legacy Tokens
+              </button>
             </div>
-            <div>
-              <label className="block font-mono text-xs text-acid mb-2 uppercase tracking-widest">
-                Session Token
-              </label>
-              <textarea
-                rows={3}
-                placeholder="SESSION_KEY..."
-                value={form.session}
-                onChange={(e) => setForm({ ...form, session: e.target.value })}
-                className="w-full bg-gray-900 border-b-2 border-gray-700 p-3 text-white font-mono focus:outline-none focus:border-acid focus:bg-gray-800 transition-colors placeholder-gray-700 text-xs"
-              ></textarea>
-            </div>
+            {authMode === 'cookies' ? (
+              <div>
+                <label className="block font-mono text-xs text-acid mb-2 uppercase tracking-widest">
+                  Cookies
+                </label>
+                <textarea
+                  rows={4}
+                  placeholder="__Secure-pplx.session.<uuid>=...; __Host-pplx-last-active-account=<uuid>"
+                  value={form.cookies}
+                  onChange={(e) =>
+                    setForm({ ...form, cookies: e.target.value })
+                  }
+                  className="w-full bg-gray-900 border-b-2 border-gray-700 p-3 text-white font-mono focus:outline-none focus:border-acid focus:bg-gray-800 transition-colors placeholder-gray-700 text-xs"
+                ></textarea>
+                <p className="mt-2 font-mono text-xs text-gray-500">
+                  Paste the Cookie header (DevTools → Network) or a JSON object.
+                  Only Perplexity session cookies are kept.
+                </p>
+                {form.cookies.trim() &&
+                  (parsedCookies ? (
+                    <p className="mt-1 font-mono text-xs text-acid">
+                      Detected: {detectedCookies.join(', ')}
+                    </p>
+                  ) : (
+                    <p className="mt-1 font-mono text-xs text-red-400">
+                      No __Secure-pplx.session.* cookie found
+                    </p>
+                  ))}
+              </div>
+            ) : (
+              <>
+                <div>
+                  <label className="block font-mono text-xs text-acid mb-2 uppercase tracking-widest">
+                    CSRF Token
+                  </label>
+                  <textarea
+                    rows={2}
+                    placeholder="ENCRYPTED_STRING..."
+                    value={form.csrf}
+                    onChange={(e) => setForm({ ...form, csrf: e.target.value })}
+                    className="w-full bg-gray-900 border-b-2 border-gray-700 p-3 text-white font-mono focus:outline-none focus:border-acid focus:bg-gray-800 transition-colors placeholder-gray-700 text-xs"
+                  ></textarea>
+                </div>
+                <div>
+                  <label className="block font-mono text-xs text-acid mb-2 uppercase tracking-widest">
+                    Session Token
+                  </label>
+                  <textarea
+                    rows={3}
+                    placeholder="SESSION_KEY..."
+                    value={form.session}
+                    onChange={(e) =>
+                      setForm({ ...form, session: e.target.value })
+                    }
+                    className="w-full bg-gray-900 border-b-2 border-gray-700 p-3 text-white font-mono focus:outline-none focus:border-acid focus:bg-gray-800 transition-colors placeholder-gray-700 text-xs"
+                  ></textarea>
+                </div>
+              </>
+            )}
           </>
         ) : (
           <div className="space-y-4">
