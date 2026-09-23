@@ -663,3 +663,49 @@ class TestClientPoolConfigValidation:
                 ClientPool(config_path)
         finally:
             os.unlink(config_path)
+
+    @patch("perplexity.server.client_pool.Client")
+    def test_config_accepts_rolling_session_cookies(self, mock_client_class):
+        """An entry without legacy tokens but with a cookie set is accepted."""
+        from perplexity.server.client_pool import ClientPool
+
+        config = {
+            "tokens": [
+                {
+                    "id": "user1",
+                    "cookies": {
+                        "__Secure-pplx.session.5c352b4f": "rolling-session-token",
+                    },
+                }
+            ]
+        }
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(config, f)
+            config_path = f.name
+
+        try:
+            pool = ClientPool(config_path)
+            assert "user1" in pool.clients
+            mock_client_class.assert_called_once()
+            sent_cookies = mock_client_class.call_args[0][0]
+            assert sent_cookies["__Secure-pplx.session.5c352b4f"] == "rolling-session-token"
+        finally:
+            os.unlink(config_path)
+
+    @patch("perplexity.server.client_pool.Client")
+    def test_invalid_config_empty_cookies(self, mock_client_class):
+        """An entry with only an empty cookie set is rejected."""
+        from perplexity.server.client_pool import ClientPool
+
+        config = {"tokens": [{"id": "user1", "cookies": {"__Secure-pplx.session.x": ""}}]}
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(config, f)
+            config_path = f.name
+
+        try:
+            with pytest.raises(ValueError, match="Invalid token entry"):
+                ClientPool(config_path)
+        finally:
+            os.unlink(config_path)

@@ -213,9 +213,12 @@ async def pool_api(request: Request) -> JSONResponse:
     if action == "list":
         return JSONResponse(pool.list_clients())
     elif action == "add":
-        if not all([client_id, csrf_token, session_token]):
+        raw_cookies = body.get("cookies")
+        extra_cookies = raw_cookies if isinstance(raw_cookies, dict) and any(raw_cookies.values()) else None
+        if not client_id or not ((csrf_token and session_token) or extra_cookies):
             return JSONResponse({"status": "error", "message": "Missing required parameters"})
-        return JSONResponse(await asyncio.to_thread(pool.add_client, client_id, csrf_token, session_token))
+        return JSONResponse(await asyncio.to_thread(
+            pool.add_client, client_id, csrf_token or "", session_token or "", extra_cookies))
     elif action == "remove":
         if not client_id:
             return JSONResponse({"status": "error", "message": "Missing required parameter: id"})
