@@ -171,3 +171,20 @@ async def test_oai_rejects_max_model_for_pro_only_pool(tmp_path, monkeypatch, ap
 
     assert response.status_code == 400
     assert "unavailable" in json.loads(response.body)["error"]["message"]
+
+
+@pytest.mark.parametrize("cookies, expected", [
+    ({"__Host-pplx-last-active-account": "acct", "__Secure-pplx.session.other": "s"}, "acct"),
+    ({"__Secure-pplx.session.5c352b4f": "s"}, "5c352b4f"),
+    ({"__Secure-next-auth.session-token": "legacy"}, ""),
+])
+def test_session_probe_sends_account_hint(cookies, expected) -> None:
+    session = MagicMock()
+    session.get.return_value.ok = False
+
+    with patch("perplexity.client.requests.Session", return_value=session):
+        client = Client(cookies)
+
+    assert client.account_hint() == expected
+    headers = session.get.call_args.kwargs["headers"]
+    assert headers == ({"x-pplx-account": expected} if expected else {})
