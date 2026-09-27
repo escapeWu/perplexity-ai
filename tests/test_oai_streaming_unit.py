@@ -108,7 +108,7 @@ async def test_thinking_flag_selects_and_persists_effective_model(api_runtime):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("options,status", [({"thinking": "yes"}, 400), ({"reasoning_effort": "high"}, 400),
-    ({"session_id": "sess_" + "0" * 32}, 404), ({"stream": 1}, 400), ({"model": "missing-model"}, 400)])
+    ({"session_id": "sess_" + "0" * 32}, 404), ({"stream": 1}, 400), ({"model": " "}, 400)])
 async def test_invalid_requests_never_start_upstream(api_runtime, options, status):
     response = await oai.oai_chat_completions(request_for("/v1/chat/completions", payload(**options)))
     assert response.status_code == status

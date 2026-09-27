@@ -91,6 +91,8 @@ def completion_payload(job, response_id, created, *, webui=False):
                "sources": result.get("sources", []),
                "usage": {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens,
                          "total_tokens": prompt_tokens + completion_tokens}}
+    if "model_fallback" in result:
+        payload["model_fallback"] = result["model_fallback"]
     if webui:
         payload["webui_session"] = result.get("session")
     return payload
@@ -145,6 +147,8 @@ async def completion_response(runtime, job, *, stream=True, include_progress=Fal
                         raise job_failure(current_job)
                     final = {**base, "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
                              "sources": snapshot.get("sources", [])}
+                    if "model_fallback" in snapshot:
+                        final["model_fallback"] = snapshot["model_fallback"]
                     if webui:
                         final["webui_session"] = snapshot.get("session")
                     yield encode(final)

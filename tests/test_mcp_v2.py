@@ -46,7 +46,8 @@ async def test_ask_v2_uses_oai_model_and_thinking_resolution(monkeypatch):
 
     def fake_parse(model_id, thinking, tiers):
         captured.update(model_id=model_id, thinking=thinking, tiers=tiers)
-        return "reasoning", "gpt-5.6-terra-thinking", "gpt-5-6-terra-thinking"
+        return {"mode": "reasoning", "model": "gpt-5.6-terra-thinking",
+                "model_id": "gpt-5-6-terra-thinking"}
 
     run = AsyncMock(
         return_value={
@@ -57,7 +58,7 @@ async def test_ask_v2_uses_oai_model_and_thinking_resolution(monkeypatch):
         }
     )
     monkeypatch.setattr(mcp_tools, "get_pool", lambda: pool)
-    monkeypatch.setattr(mcp_tools, "parse_oai_model_with_thinking", fake_parse)
+    monkeypatch.setattr(mcp_tools, "resolve_chat_model", fake_parse)
     monkeypatch.setattr(mcp_tools, "_run_v2_session_query", run)
 
     result = await mcp_tools.perplexity_ask_v2.fn("analyze", model="gpt-5-6-terra", thinking=True)

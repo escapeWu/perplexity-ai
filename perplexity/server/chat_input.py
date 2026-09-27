@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from .file_sources import extract_files
 from .job_store import JobError
 from .files_store import attachment_input_budget
-from .utils import parse_oai_model_with_thinking
+from .utils import resolve_chat_model
 from .webui_sessions import validate_session_id
 
 MAX_JSON_BYTES = 32 * 1024 * 1024
@@ -129,7 +129,7 @@ async def parse_chat_body(body, pool, *, origin="webui"):
     options = body.get("perplexity", {})
     if not isinstance(options, dict) or not isinstance(options.get("include_progress", False), bool):
         raise ValueError("perplexity.include_progress must be a boolean")
-    mode, model, effective_id = parse_oai_model_with_thinking(model_id, body.get("thinking", False), pool.get_model_subscription_tiers())
+    resolved = resolve_chat_model(model_id, body.get("thinking", False), pool.get_model_subscription_tiers())
     flatten = origin == "oai" and session_id is None
     files = await resolve_files(messages if flatten else [user])
     query = query_from_messages(messages) if flatten else message_text(user.get("content", "")).strip()
@@ -137,6 +137,6 @@ async def parse_chat_body(body, pool, *, origin="webui"):
         query = "Please analyze the attached file."
     if not query:
         raise ValueError("The current user message cannot be empty")
-    return {"query": query, "mode": mode, "model": model, "model_id": effective_id,
+    return {"query": query, **resolved,
             "session_id": session_id, "user_content": user.get("content", ""),
             "files": files, "origin": origin}

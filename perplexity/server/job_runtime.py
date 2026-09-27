@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import sqlite3
 import hashlib
+import json
 import anyio
 import time
 from collections import Counter
@@ -126,7 +127,8 @@ class JobRuntime:
 
     async def _submit(self, *, query, mode="auto", model=None, model_id="auto", session_id=None,
                      user_content=None, files=None, search_sources=None, language="en-US",
-                     incognito=False, origin="webui", idempotency_key=None, principal="default"):
+                     incognito=False, origin="webui", idempotency_key=None, principal="default",
+                     requested_model=None):
         query = sanitize_query(query)
         if session_id is not None:
             validate_session_id(session_id)
@@ -143,6 +145,8 @@ class JobRuntime:
                    "search_sources": search_sources or ["web"], "language": language,
                    "incognito": bool(incognito or self.pool.is_incognito_enabled()),
                    "file_hashes": {name: hashlib.sha256(data).hexdigest() for name, data in normalized_files.items()}}
+        if requested_model is not None:
+            payload["requested_model"] = requested_model
         async with self.admission:
             if not self.accepting or self.dispatcher is None or self.dispatcher.done():
                 raise JobError("Task runner is not accepting work", "service_unavailable", 503)
@@ -340,6 +344,13 @@ class JobRuntime:
         cursor = latest.get("_follow_up")
         if not isinstance(cursor, dict) or not cursor.get("backend_uuid"):
             raise UpstreamError("Upstream response did not include a native cursor", "upstream_incomplete")
+        if "requested_model" in payload:
+            selected = "Best Thinking" if payload["mode"] == "reasoning" else "Best"
+            notice = (f"模型使用错误：请求的模型 {json.dumps(payload['requested_model'], ensure_ascii=False)} "
+                      f"不存在或已下线，已自动路由到 {selected}（{payload['model_id']}）。")
+            result["model_fallback"] = {"requested_model": payload["requested_model"],
+                "effective_model": payload["model_id"], "message": notice}
+            result["answer"] += "\n\n[模型路由提示] " + notice
         committed = await self.db(self.store.complete, job_id, result, cursor)
         if committed:
             self.metrics["completed"] += 1

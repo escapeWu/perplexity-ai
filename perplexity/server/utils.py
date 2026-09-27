@@ -118,6 +118,28 @@ def parse_oai_model_with_thinking(
     return thinking_mode, thinking_model, thinking_model_id
 
 
+def resolve_chat_model(
+    model_id: str,
+    thinking: bool = False,
+    subscription_tiers: Optional[Iterable[str]] = None,
+) -> Dict[str, Any]:
+    """Use Best for unknown IDs without bypassing known models' subscription checks."""
+    if not isinstance(model_id, str) or not model_id.strip():
+        raise ValueError("model must be a non-empty OAI model ID")
+    if not isinstance(thinking, bool):
+        raise ValueError("thinking must be a boolean")
+    tiers = tuple(subscription_tiers) if subscription_tiers is not None else None
+    fallback = model_id not in build_oai_model_map()
+    selected = "perplexity-search" if fallback else model_id
+    mode, model, effective = parse_oai_model_with_thinking(
+        selected, thinking or (fallback and model_id.endswith("-thinking")), tiers
+    )
+    resolved = {"mode": mode, "model": model, "model_id": effective}
+    if fallback:
+        resolved["requested_model"] = model_id
+    return resolved
+
+
 def generate_oai_models(
     subscription_tiers: Optional[Iterable[str]] = None,
 ) -> List[Dict[str, Any]]:

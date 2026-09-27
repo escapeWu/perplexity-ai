@@ -24,7 +24,7 @@ except ImportError:
 
 try:
     from .session_runtime import SessionChatError, get_or_create_session, run_session_non_stream
-    from .utils import parse_oai_model, parse_oai_model_with_thinking
+    from .utils import parse_oai_model, resolve_chat_model
     from .webui_sessions import (
         InvalidWebUISession,
         WebUISessionNotFound,
@@ -36,7 +36,7 @@ except ImportError:
         get_or_create_session,
         run_session_non_stream,
     )
-    from perplexity.server.utils import parse_oai_model, parse_oai_model_with_thinking
+    from perplexity.server.utils import parse_oai_model, resolve_chat_model
     from perplexity.server.webui_sessions import (
         InvalidWebUISession,
         WebUISessionNotFound,
@@ -163,13 +163,15 @@ async def _run_v2_session_query(
     model_id: str,
     session_id: Optional[str],
     files: Optional[Union[Dict[str, Any], Iterable[str]]],
+    requested_model: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Execute a v2 turn through the same job runtime as OAI and WebUI."""
     resolved_session_id = session_id
     try:
         runtime = await get_job_runtime()
         async with _mcp_submission(runtime, files, query=query, mode=mode, model=model,
-                model_id=model_id, session_id=session_id, user_content=query, origin="mcp") as job:
+                model_id=model_id, session_id=session_id, user_content=query, origin="mcp",
+                requested_model=requested_model) as job:
             resolved_session_id = job["session_id"]
             final = await wait_request_job(runtime, job["id"])
             if final["state"] != "completed":
@@ -191,8 +193,9 @@ async def perplexity_ask_v2(
     """Ask Perplexity with an OAI model ID and an optional native conversation session.
 
     Omit ``model`` to use ``perplexity-search``. Set ``thinking=true`` to resolve
-    the selected model's paired thinking variant. Omit ``session_id`` to start a
-    new conversation; the returned ID can be supplied on the next call.
+    the selected model's paired thinking variant. Unknown or retired model IDs
+    use Best (Best Thinking when requested), with an explicit notice after the answer.
+    Omit ``session_id`` to start a new conversation; reuse the returned ID to continue.
     """
     if not isinstance(query, str) or not query.strip():
         return _mcp_session_error(ValueError("query must be a non-empty string"), session_id)
@@ -205,12 +208,10 @@ async def perplexity_ask_v2(
 
     requested_model_id = model if model is not None else "perplexity-search"
     try:
-        mode, internal_model, effective_model_id = parse_oai_model_with_thinking(
-            requested_model_id,
-            thinking,
-            get_pool().get_model_subscription_tiers(),
+        resolved = resolve_chat_model(
+            requested_model_id, thinking, get_pool().get_model_subscription_tiers()
         )
-        if mode == "deep research":
+        if resolved["mode"] == "deep research":
             raise ValueError(
                 "perplexity_ask_v2 does not accept the Deep Research model; "
                 "use perplexity_research_v2"
@@ -220,9 +221,7 @@ async def perplexity_ask_v2(
 
     return await _run_v2_session_query(
         query.strip(),
-        mode=mode,
-        model=internal_model,
-        model_id=effective_model_id,
+        **resolved,
         session_id=session_id,
         files=files,
     )
@@ -271,13 +270,14 @@ async def perplexity_task_submit(
     Different sessions may run concurrently on one account. Use an OAI model ID;
     perplexity-deepsearch selects Research. Observe with perplexity_task_status;
     only perplexity_task_cancel stops execution. Reuse idempotency_key on retries.
+    Unknown or retired model IDs use Best with an explicit final-answer notice.
     See resource perplexity://guides/tasks for states, retention and cancellation.
     """
     try:
         runtime = await get_job_runtime()
-        mode, internal, effective = parse_oai_model_with_thinking(model, thinking, runtime.pool.get_model_subscription_tiers())
-        async with _mcp_submission(runtime, files, query=query, mode=mode, model=internal,
-                model_id=effective, session_id=session_id, origin="mcp", idempotency_key=idempotency_key,
+        resolved = resolve_chat_model(model, thinking, runtime.pool.get_model_subscription_tiers())
+        async with _mcp_submission(runtime, files, query=query, **resolved,
+                session_id=session_id, origin="mcp", idempotency_key=idempotency_key,
                 detached=True) as job:
             return {"status": "ok", **public_job(job)}
     except Exception as exc:
