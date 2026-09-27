@@ -158,6 +158,7 @@ class TestClientPool:
         assert pool._mode == "anonymous"
         assert len(pool.clients) == 1
         assert "anonymous" in pool.clients
+        assert pool.is_heartbeat_enabled()
 
     @patch("pathlib.Path.exists", return_value=False)
     @patch("perplexity.server.client_pool.Client")
@@ -182,6 +183,7 @@ class TestClientPool:
         from perplexity.server.client_pool import ClientPool
 
         config = {
+            "heart_beat": {"interval": 6},
             "tokens": [
                 {"id": "user1", "csrf_token": "csrf1", "session_token": "session1"},
                 {"id": "user2", "csrf_token": "csrf2", "session_token": "session2"},
@@ -197,6 +199,7 @@ class TestClientPool:
 
             assert pool._mode == "pool"
             assert len(pool.clients) == 2
+            assert pool.is_heartbeat_enabled()
             assert "user1" in pool.clients
             assert "user2" in pool.clients
         finally:

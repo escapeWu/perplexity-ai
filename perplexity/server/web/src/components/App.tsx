@@ -188,7 +188,7 @@ export function App() {
             {/* Stats Grid */}
             <StatsGrid data={data} hbConfig={hbConfig} />
 
-            {/* Heartbeat Controls */}
+            {/* Auto Renew Cookie Controls */}
             {isAuthenticated && hbConfig && (
               <HeartbeatPanel
                 hbConfig={hbConfig}

@@ -18,13 +18,13 @@ export function StatsGrid({ data, hbConfig }: StatsGridProps) {
     [data.clients]
   )
 
-  const getHeartbeatStatus = () => {
+  const getAutoRenewStatus = () => {
     if (!hbConfig) return { label: 'UNKNOWN', color: 'text-gray-500' }
     if (!hbConfig.enable) return { label: 'DISABLED', color: 'text-gray-500' }
     return { label: 'ACTIVE', color: 'text-green-500' }
   }
 
-  const hbStatus = getHeartbeatStatus()
+  const hbStatus = getAutoRenewStatus()
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-12">
@@ -48,7 +48,7 @@ export function StatsGrid({ data, hbConfig }: StatsGridProps) {
       />
       <BrutalistCard
         number="04"
-        label="Heartbeat"
+        label="Auto Renew Cookie"
         value={hbStatus.label}
         colorClass={hbStatus.color}
       />

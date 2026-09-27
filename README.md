@@ -385,6 +385,7 @@ Static built-in mappings are used only when no valid cache exists.
 </a>
 
 ## What's New
++ **2026-09-26**: v2.1.0 — Rename the WebUI heartbeat control to Auto Renew Cookie, enable cookie renewal by default, and preserve rolling session cookies during account health checks.
 + **2026-09-20**: v2.0.0 — **Major runtime rewrite**: replace the blocking per-request chat path with a durable, observable task runtime shared by OAI, MCP, and WebUI. Add account-affine concurrency, priority queues, deadlines, idempotency, retained events, resumable streams/results, strict upstream validation, bounded inputs and snapshots, atomic persistence, and background tasks that survive observer disconnects.
 + **2026-08-16**: v1.15.0 — Add OpenAI-aligned v2 MCP ask/research tools and REST session continuation with account-bound conversations, refresh the dynamic model catalog, deprecate legacy MCP tools, and align the Playground model and Thinking controls with Perplexity WebUI.
 + **2026-08-13**: v1.14.0 — Add server-backed Playground conversations with a responsive session sidebar, native Perplexity follow-up threads, persistent history, and immutable per-conversation account binding without cross-account failover.

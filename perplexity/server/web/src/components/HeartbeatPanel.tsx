@@ -28,7 +28,7 @@ export function HeartbeatPanel({
     tg_chat_id: hbConfig.tg_chat_id,
   })
 
-  const handleHeartbeatAction = async (action: string) => {
+  const handleAutoRenewAction = async (action: string) => {
     if (!isAuthenticated) {
       onToast('AUTH_REQUIRED', 'error')
       return
@@ -41,7 +41,7 @@ export function HeartbeatPanel({
     try {
       const resp = await apiCall(`heartbeat/${action}`, {}, adminToken)
       if (resp.status === 'ok') {
-        onToast(`HEARTBEAT_${action.toUpperCase()}_OK`, 'success')
+        onToast(`AUTO_RENEW_COOKIE_${action.toUpperCase()}_OK`, 'success')
         onRefresh()
       } else {
         onToast(resp.message || 'ERROR', 'error')
@@ -77,8 +77,8 @@ export function HeartbeatPanel({
     <div className="mb-8 p-4 border border-gray-700 bg-gray-900/30">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <h3 className="font-bold text-white uppercase tracking-wider">♥ Heartbeat Control</h3>
-          <div className="text-xs font-mono text-gray-500">INTERVAL: {hbConfig.interval}H</div>
+          <h3 className="font-bold text-white uppercase tracking-wider">♥ Auto Renew Cookie</h3>
+          <div className="text-xs font-mono text-gray-500">RENEW INTERVAL: {hbConfig.interval}H</div>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -88,7 +88,7 @@ export function HeartbeatPanel({
             {isConfigOpen ? 'Hide Config' : 'Config'}
           </button>
           <button
-            onClick={() => handleHeartbeatAction('test')}
+            onClick={() => handleAutoRenewAction('test')}
             disabled={isGlobalTesting}
             className={`px-3 py-1 border border-neon-blue text-neon-blue font-mono text-xs uppercase transition-colors ${
               isGlobalTesting
@@ -96,7 +96,7 @@ export function HeartbeatPanel({
                 : 'hover:bg-neon-blue hover:text-black'
             }`}
           >
-            {isGlobalTesting ? 'Testing...' : 'Test All'}
+            {isGlobalTesting ? 'Renewing...' : 'Renew All Cookies'}
           </button>
         </div>
       </div>
@@ -106,7 +106,7 @@ export function HeartbeatPanel({
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             <div>
               <label className="block font-mono text-xs text-gray-500 mb-1 uppercase">
-                Enable
+                Auto Renew Cookie
               </label>
               <select
                 value={configForm.enable ? 'true' : 'false'}
@@ -137,7 +137,7 @@ export function HeartbeatPanel({
             </div>
             <div>
               <label className="block font-mono text-xs text-gray-500 mb-1 uppercase">
-                Test Question
+                Health Check Question
               </label>
               <input
                 type="text"

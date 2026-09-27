@@ -97,6 +97,7 @@ REST 使用 `PPLX_BASE_URL` 和 `MCP_TOKEN`，仓库内配置已脱敏，不包�
 <img width="1894" height="989" alt="image" src="https://github.com/user-attachments/assets/4a495432-8305-4820-8b4a-d7e54986ba45" />
 
 ## 最新动态（What's New）
++ **2026-09-26**：v2.1.0 — 将 WebUI 的心跳控制改名为“自动续期 Cookie”，默认开启 Cookie 自动续期，并在账号健康检查期间持续保存滚动更新的会话 Cookie。
 + **2026-09-20**：v2.0.0 — **底层运行时重写**：以可持久化、可观测的任务运行时替代按请求阻塞式聊天链路，统一 OAI、MCP 与 WebUI 执行路径；新增账号绑定并发、优先级队列、超时与幂等控制、事件留存、流式/结果恢复、严格上游校验、输入与快照边界、原子持久化，以及观察者断开后仍可继续的后台任务。
 + **2026-08-16**：v1.15.0 — 新增与 OpenAI 格式对齐的 v2 MCP ask/research 工具及 REST 会话续聊，实现会话与账号绑定；更新动态模型目录、标记旧 MCP 工具即将废弃，并让 Playground 模型与 Thinking 控件对齐 Perplexity WebUI。
 + **2026-08-13**：v1.14.0 — Playground 新增服务端持久化会话、响应式会话侧边栏和 Perplexity 原生 follow-up；每个会话首次发送后永久绑定一个账号，禁止跨账号故障转移。

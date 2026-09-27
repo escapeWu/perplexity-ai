@@ -83,7 +83,7 @@ async def app_lifespan(server: FastMCP):
     model_refresh_task = asyncio.create_task(refresh_models_loop())
     if pool.is_heartbeat_enabled():
         pool.start_heartbeat()
-        logger.info("Heartbeat started via lifespan")
+        logger.info("Automatic cookie renewal started via lifespan")
     try:
         yield
     finally:

@@ -403,7 +403,7 @@ export function TokenTable({
                               : 'cursor-not-allowed opacity-50'
                           }`}
                           onClick={() => handleTestClient(c.id)}
-                          title="Test Heartbeat"
+                          title="Renew Cookie"
                           disabled={!isAuthenticated || testingIds.has(c.id)}
                         >
                           [TEST]

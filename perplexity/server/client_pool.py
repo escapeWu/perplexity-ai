@@ -205,7 +205,7 @@ class ClientPool:
 
         # Heartbeat configuration
         self._heartbeat_config: Dict[str, Any] = {
-            "enable": False,
+            "enable": True,
             "question": "现在是农历几月几号？",
             "interval": 6,  # hours
             "tg_bot_token": None,
@@ -298,7 +298,7 @@ class ClientPool:
         heart_beat = config.get("heart_beat")
         if heart_beat and isinstance(heart_beat, dict):
             self._heartbeat_config = {
-                "enable": heart_beat.get("enable", False),
+                "enable": heart_beat.get("enable", True),
                 "question": heart_beat.get("question", "现在是农历几月几号？"),
                 "interval": heart_beat.get("interval", 6),
                 "tg_bot_token": heart_beat.get("tg_bot_token"),
@@ -879,7 +879,7 @@ class ClientPool:
         Returns:
             Dict with status and updated config
         """
-        old_enable = self._heartbeat_config.get("enable", False)
+        old_enable = self._heartbeat_config.get("enable", True)
         old_interval = self._heartbeat_config.get("interval", 6)
 
         # Update in-memory config
@@ -887,7 +887,7 @@ class ClientPool:
             if key in new_config:
                 self._heartbeat_config[key] = new_config[key]
 
-        new_enable = self._heartbeat_config.get("enable", False)
+        new_enable = self._heartbeat_config.get("enable", True)
         new_interval = self._heartbeat_config.get("interval", 6)
 
         # 热重载心跳任务：如果开关打开且（之前是关的 或 间隔变了），则重启
@@ -909,7 +909,7 @@ class ClientPool:
 
     def is_heartbeat_enabled(self) -> bool:
         """Check if heartbeat is enabled."""
-        return self._heartbeat_config.get("enable", False)
+        return self._heartbeat_config.get("enable", True)
 
     # ==================== Fallback Methods ====================
 

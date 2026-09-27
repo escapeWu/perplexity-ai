@@ -1,5 +1,5 @@
 """
-Admin, pool management, and heartbeat routes.
+Admin, pool management, and automatic cookie renewal routes.
 """
 
 import asyncio
@@ -372,11 +372,11 @@ async def playground_static(request: Request):
     return Response("Not Found", status_code=404)
 
 
-# ==================== Heartbeat API 端点 ====================
+# ==================== Automatic Cookie Renewal API ====================
 
 @mcp.custom_route("/heartbeat/config", methods=["GET"])
 async def heartbeat_config(request: Request) -> JSONResponse:
-    """获取心跳配置"""
+    """获取自动续期 Cookie 配置"""
     from perplexity.config import ADMIN_TOKEN
 
     if not ADMIN_TOKEN:
@@ -530,7 +530,7 @@ async def timeouts_config_update(request: Request) -> JSONResponse:
 
 @mcp.custom_route("/heartbeat/config", methods=["POST"])
 async def heartbeat_config_update(request: Request) -> JSONResponse:
-    """更新心跳配置"""
+    """更新自动续期 Cookie 配置"""
     from perplexity.config import ADMIN_TOKEN
 
     if not ADMIN_TOKEN:
@@ -568,7 +568,7 @@ async def heartbeat_config_update(request: Request) -> JSONResponse:
 
 @mcp.custom_route("/heartbeat/start", methods=["POST"])
 async def heartbeat_start(request: Request) -> JSONResponse:
-    """启动心跳后台任务"""
+    """启动自动续期 Cookie 后台任务"""
     from perplexity.config import ADMIN_TOKEN
 
     if not ADMIN_TOKEN:
@@ -587,16 +587,16 @@ async def heartbeat_start(request: Request) -> JSONResponse:
     pool = get_pool()
     started = pool.start_heartbeat()
     if started:
-        return JSONResponse({"status": "ok", "message": "Heartbeat started"})
+        return JSONResponse({"status": "ok", "message": "Automatic cookie renewal started"})
     elif not pool.is_heartbeat_enabled():
-        return JSONResponse({"status": "error", "message": "Heartbeat is disabled in config"})
+        return JSONResponse({"status": "error", "message": "Automatic cookie renewal is disabled in config"})
     else:
-        return JSONResponse({"status": "ok", "message": "Heartbeat already running"})
+        return JSONResponse({"status": "ok", "message": "Automatic cookie renewal already running"})
 
 
 @mcp.custom_route("/heartbeat/stop", methods=["POST"])
 async def heartbeat_stop(request: Request) -> JSONResponse:
-    """停止心跳后台任务"""
+    """停止自动续期 Cookie 后台任务"""
     from perplexity.config import ADMIN_TOKEN
 
     if not ADMIN_TOKEN:
@@ -615,14 +615,14 @@ async def heartbeat_stop(request: Request) -> JSONResponse:
     pool = get_pool()
     stopped = pool.stop_heartbeat()
     if stopped:
-        return JSONResponse({"status": "ok", "message": "Heartbeat stopped"})
+        return JSONResponse({"status": "ok", "message": "Automatic cookie renewal stopped"})
     else:
-        return JSONResponse({"status": "ok", "message": "Heartbeat not running"})
+        return JSONResponse({"status": "ok", "message": "Automatic cookie renewal not running"})
 
 
 @mcp.custom_route("/heartbeat/test", methods=["POST"])
 async def heartbeat_test(request: Request) -> JSONResponse:
-    """手动触发心跳测试"""
+    """手动触发 Cookie 续期与健康检查"""
     from perplexity.config import ADMIN_TOKEN
 
     if not ADMIN_TOKEN:
