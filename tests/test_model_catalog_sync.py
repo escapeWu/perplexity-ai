@@ -87,10 +87,10 @@ def test_repository_snapshot_is_valid_and_contains_pro_and_max_models() -> None:
     assert summary["usable_models"] > 4
 
     search_entries = {item["label"]: item for item in catalog["search_config"]}
-    assert search_entries["Gemini 3.7 Flash"]["non_reasoning_model"] == "gemini37flash"
-    assert search_entries["Gemini 3.7 Flash"]["reasoning_model"] == "gemini37flashthinking"
-    assert search_entries["Grok 4.6"]["non_reasoning_model"] == "grok46low"
-    assert search_entries["Grok 4.6"]["reasoning_model"] == "grok46medium"
+    assert search_entries["Gemini 3.8 Flash"]["non_reasoning_model"] == "gemini38flash"
+    assert search_entries["Gemini 3.8 Flash"]["reasoning_model"] == "gemini38flashthinking"
+    assert search_entries["Grok 4.7"]["non_reasoning_model"] == "grok47"
+    assert search_entries["Grok 4.7"]["reasoning_model"] == "grok47thinking"
     assert {"Gemini 3.1 Pro", "Grok 4.5"}.isdisjoint(search_entries)
 
 
