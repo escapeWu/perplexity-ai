@@ -385,6 +385,7 @@ Static built-in mappings are used only when no valid cache exists.
 </a>
 
 ## What's New
++ **2026-09-27**: v2.1.1 — Refresh the persisted model catalog on server startup while retaining the last valid cache on failure; route unknown or retired model IDs to Best/Best Thinking with an explicit final-answer notice and requested/effective model metadata, while preserving subscription checks and idempotent replay.
 + **2026-09-26**: v2.1.0 — Rename the WebUI heartbeat control to Auto Renew Cookie, enable cookie renewal by default, and preserve rolling session cookies during account health checks.
 + **2026-09-20**: v2.0.0 — **Major runtime rewrite**: replace the blocking per-request chat path with a durable, observable task runtime shared by OAI, MCP, and WebUI. Add account-affine concurrency, priority queues, deadlines, idempotency, retained events, resumable streams/results, strict upstream validation, bounded inputs and snapshots, atomic persistence, and background tasks that survive observer disconnects.
 + **2026-08-16**: v1.15.0 — Add OpenAI-aligned v2 MCP ask/research tools and REST session continuation with account-bound conversations, refresh the dynamic model catalog, deprecate legacy MCP tools, and align the Playground model and Thinking controls with Perplexity WebUI.

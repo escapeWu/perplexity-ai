@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "perplexity-api"
-version = "2.1.0"
+version = "2.1.1"
 description = "Unofficial Perplexity MCP and OpenAI-compatible server with multi-account pooling"
 readme = "README.md"
 requires-python = ">=3.10"
