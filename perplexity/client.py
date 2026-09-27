@@ -62,7 +62,7 @@ class Client:
         except Exception:
             logger.debug("Account metadata was unavailable during initialization")
 
-    def _account_hint(self) -> str:
+    def account_hint(self) -> str:
         # Perplexity's session middleware selects the account via the
         # x-pplx-account header; the id is recoverable from our own cookies.
         hint = self._cookies.get("__Host-pplx-last-active-account")
@@ -74,7 +74,8 @@ class Client:
         return hint or ""
 
     def _probe_session(self):
-        headers = {"x-pplx-account": self._account_hint()} if self._account_hint() else {}
+        hint = self.account_hint()
+        headers = {"x-pplx-account": hint} if hint else {}
         return self.session.get(ENDPOINT_AUTH_SESSION, headers=headers, timeout=30)
 
     @property

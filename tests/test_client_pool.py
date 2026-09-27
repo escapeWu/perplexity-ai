@@ -709,3 +709,66 @@ class TestClientPoolConfigValidation:
                 ClientPool(config_path)
         finally:
             os.unlink(config_path)
+
+    @patch("perplexity.server.client_pool.Client")
+    def test_save_and_export_keep_only_auth_cookies(self, mock_client_class):
+        """Transient cookies are dropped; rolling-session and supplied cookies round-trip."""
+        from perplexity.server.client_pool import ClientPool
+
+        supplied = {"__Secure-pplx.session.5c352b4f": "v1", "custom": "keep"}
+        config = {"tokens": [{"id": "user1", "cookies": supplied}]}
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(config, f)
+            config_path = f.name
+
+        try:
+            pool = ClientPool(config_path)
+            live = {"__Secure-pplx.session.5c352b4f": "v2", "custom": "keep",
+                    "__Host-pplx-last-active-account": "5c352b4f", "__cf_bm": "transient"}
+            client = mock_client_class.return_value
+            client.cookies = live
+            client._cookies = live
+            pool._save_config()
+
+            with open(config_path) as f:
+                saved = json.load(f)["tokens"][0]
+            expected = {"__Secure-pplx.session.5c352b4f": "v2", "custom": "keep",
+                        "__Host-pplx-last-active-account": "5c352b4f"}
+            assert saved["cookies"] == expected
+            assert pool.export_config()["tokens"][0]["cookies"] == expected
+            assert pool.export_single_client("user1")[0]["cookies"] == expected
+
+            # A cookie-only export must be importable into another pool.
+            exported = pool.export_single_client("user1")
+            exported[0]["id"] = "user2"
+            result = pool.import_config(exported)
+            assert result["added"] == ["user2"], result
+            assert mock_client_class.call_args[0][0] == expected
+        finally:
+            os.unlink(config_path)
+
+    @patch("perplexity.server.client_pool.Client")
+    def test_save_omits_cookies_for_legacy_entries(self, mock_client_class):
+        """Legacy entries keep their existing on-disk shape."""
+        from perplexity.server.client_pool import ClientPool
+
+        config = {"tokens": [{"id": "user1", "csrf_token": "c", "session_token": "s"}]}
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(config, f)
+            config_path = f.name
+
+        try:
+            pool = ClientPool(config_path)
+            mock_client_class.return_value.cookies = {
+                "next-auth.csrf-token": "c", "__Secure-next-auth.session-token": "s",
+                "__cf_bm": "transient"}
+            pool._save_config()
+
+            with open(config_path) as f:
+                saved = json.load(f)["tokens"][0]
+            assert "cookies" not in saved
+            assert (saved["csrf_token"], saved["session_token"]) == ("c", "s")
+        finally:
+            os.unlink(config_path)

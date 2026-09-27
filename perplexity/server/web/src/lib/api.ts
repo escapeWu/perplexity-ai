@@ -176,8 +176,10 @@ export async function fetchLogs(
 
 export interface TokenConfig {
   id: string
-  csrf_token: string
-  session_token: string
+  // Either the legacy pair or a cookie map (e.g. __Secure-pplx.session.<uuid>).
+  csrf_token?: string
+  session_token?: string
+  cookies?: Record<string, string>
 }
 
 export async function downloadSingleTokenConfig(

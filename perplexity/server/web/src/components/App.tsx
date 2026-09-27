@@ -4,6 +4,7 @@ import { useToast } from 'hooks/useToast'
 import { usePool } from 'hooks/usePool'
 import { useVersionCheck } from 'hooks/useVersionCheck'
 import { apiCall, importTokenConfig, TokenConfig } from 'lib/api'
+import { hasAccountAuth, TokenAuth } from 'lib/tokenCookies'
 import { AuthBar } from './AuthBar'
 import { StatsGrid } from './StatsGrid'
 import { HeartbeatPanel } from './HeartbeatPanel'
@@ -33,21 +34,13 @@ export function App() {
   }, [logout, addToast])
 
   const handleAddToken = useCallback(
-    async (id: string, csrf: string, session: string) => {
-      if (!id || !csrf || !session) {
+    async (id: string, auth: TokenAuth) => {
+      if (!id || !hasAccountAuth(auth)) {
         addToast('MISSING_FIELDS', 'error')
         return
       }
 
-      const resp = await apiCall(
-        'add',
-        {
-          id,
-          csrf_token: csrf,
-          session_token: session,
-        },
-        adminToken
-      )
+      const resp = await apiCall('add', { id, ...auth }, adminToken)
 
       if (resp.status === 'ok') {
         addToast('TOKEN_INJECTED', 'success')

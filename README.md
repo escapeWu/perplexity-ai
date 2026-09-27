@@ -131,16 +131,22 @@ Edit `token_pool_config.json` with your Perplexity account tokens:
     },
     {
       "id": "account2@example.com",
-      "csrf_token": "your-csrf-token-2",
-      "session_token": "your-session-token-2"
+      "cookies": {
+        "__Secure-pplx.session.<account-uuid>": "your-session-cookie",
+        "__Host-pplx-last-active-account": "<account-uuid>"
+      }
     }
   ]
 }
 ```
 
-> **How to get tokens:** Open perplexity.ai -> F12 Developer Tools -> Application -> Cookies
-> - `csrf_token` corresponds to `next-auth.csrf-token`
-> - `session_token` corresponds to `__Secure-next-auth.session-token`
+> **How to get tokens:** Open perplexity.ai -> F12 Developer Tools -> Application -> Cookies.
+> Each account needs **either** the legacy pair **or** a `cookies` map:
+> - **Current site (recommended):** copy `__Secure-pplx.session.<account-uuid>` and
+>   `__Host-pplx-last-active-account` into `cookies`, using the cookie names exactly as shown.
+>   The session cookie rotates; the server writes the latest value back to the config file.
+> - **Legacy:** `csrf_token` = `next-auth.csrf-token`, `session_token` =
+>   `__Secure-next-auth.session-token` (only if your browser still has these cookies).
 
 #### Heartbeat Configuration (Recommand, handle cookie expire!)
 

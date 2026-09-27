@@ -8,6 +8,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from .app import mcp, get_pool
+from .client_pool import build_account_cookies
 
 # If mcp is None (e.g. testing env), create a dummy decorator
 if mcp is None:
@@ -213,12 +214,11 @@ async def pool_api(request: Request) -> JSONResponse:
     if action == "list":
         return JSONResponse(pool.list_clients())
     elif action == "add":
-        raw_cookies = body.get("cookies")
-        extra_cookies = raw_cookies if isinstance(raw_cookies, dict) and any(raw_cookies.values()) else None
-        if not client_id or not ((csrf_token and session_token) or extra_cookies):
+        extra_cookies = body.get("cookies")
+        if not client_id or build_account_cookies(csrf_token, session_token, extra_cookies) is None:
             return JSONResponse({"status": "error", "message": "Missing required parameters"})
         return JSONResponse(await asyncio.to_thread(
-            pool.add_client, client_id, csrf_token or "", session_token or "", extra_cookies))
+            pool.add_client, client_id, csrf_token, session_token, extra_cookies))
     elif action == "remove":
         if not client_id:
             return JSONResponse({"status": "error", "message": "Missing required parameter: id"})

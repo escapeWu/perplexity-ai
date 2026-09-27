@@ -147,16 +147,22 @@ cp token_pool_config-example.json token_pool_config.json
     },
     {
       "id": "account2@example.com",
-      "csrf_token": "your-csrf-token-2",
-      "session_token": "your-session-token-2"
+      "cookies": {
+        "__Secure-pplx.session.<account-uuid>": "your-session-cookie",
+        "__Host-pplx-last-active-account": "<account-uuid>"
+      }
     }
   ]
 }
 ```
 
-> **获取 Token 的方法：** 打开 perplexity.ai -> F12 开发者工具 -> Application -> Cookies
-> - `csrf_token` 对应 `next-auth.csrf-token`
-> - `session_token` 对应 `__Secure-next-auth.session-token`
+> **获取 Token 的方法：** 打开 perplexity.ai -> F12 开发者工具 -> Application -> Cookies。
+> 每个账户需要提供**旧版 token 对**或 **`cookies` 映射**之一：
+> - **当前站点（推荐）：** 将 `__Secure-pplx.session.<account-uuid>` 和
+>   `__Host-pplx-last-active-account` 按原始 cookie 名填入 `cookies`。
+>   会话 cookie 会滚动更新，服务端会把最新值写回配置文件。
+> - **旧版：** `csrf_token` 对应 `next-auth.csrf-token`，`session_token` 对应
+>   `__Secure-next-auth.session-token`（仅当浏览器中仍有这两个 cookie 时使用）。
 
 #### 心跳检测配置（可选）
 
