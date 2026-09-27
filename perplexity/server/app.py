@@ -71,7 +71,8 @@ async def app_lifespan(server: FastMCP):
     pool = await asyncio.to_thread(get_pool)
     runtime = await get_job_runtime()
     registry = get_model_registry()
-    await asyncio.to_thread(registry.refresh_if_stale)
+    # Persisted cache may predate the deployed catalog even within its TTL.
+    await asyncio.to_thread(registry.refresh_if_stale, force=True)
 
     async def refresh_models_loop() -> None:
         # Check hourly; the registry performs a network request only after its

@@ -148,6 +148,41 @@ def test_refresh_writes_cache_and_fresh_instance_loads_it(tmp_path: Path) -> Non
     assert loaded.get_model_mappings({"max"})["pro"]["gpt-5.6-sol"] == "gpt56_sol"
 
 
+def test_forced_refresh_replaces_fresh_cache_and_preserves_it_on_failure(tmp_path: Path) -> None:
+    registry = registry_with_config(tmp_path)
+    registry = ModelRegistry(cache_path=registry.cache_path)
+    updated = sample_config()
+    updated["models"]["new_model"] = {"label": "New Model", "mode": "search"}
+    updated["search_config"].append(
+        {
+            "label": "New Model",
+            "subscription_tier": "pro",
+            "non_reasoning_model": "new_model",
+        }
+    )
+    registry._fetch_config = lambda: updated  # type: ignore[method-assign]
+
+    assert registry.is_stale() is False
+    assert registry.refresh_if_stale() is False
+    assert "new-model" not in registry.get_model_mappings({"pro"})["pro"]
+    assert registry.refresh_if_stale(force=True) is True
+    assert registry.get_model_mappings({"pro"})["pro"]["new-model"] == "new_model"
+
+    loaded = ModelRegistry(cache_path=registry.cache_path)
+    assert loaded.get_model_mappings({"pro"})["pro"]["new-model"] == "new_model"
+    before_status = loaded.status
+    before_cache = loaded.cache_path.read_bytes()
+
+    def fail_fetch() -> dict:
+        raise RuntimeError("network unavailable")
+
+    loaded._fetch_config = fail_fetch  # type: ignore[method-assign]
+    assert loaded.refresh_if_stale(force=True) is False
+    assert loaded.status == before_status
+    assert loaded.cache_path.read_bytes() == before_cache
+    assert loaded.get_model_mappings({"pro"})["pro"]["new-model"] == "new_model"
+
+
 def test_stale_cache_survives_refresh_failure(tmp_path: Path) -> None:
     cache_path = tmp_path / "models.json"
     registry = registry_with_config(tmp_path)

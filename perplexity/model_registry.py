@@ -512,9 +512,9 @@ class ModelRegistry:
             logger.info("Updated model catalog from %s", self.endpoint)
             return True
 
-    def refresh_if_stale(self) -> bool:
-        """Refresh stale data; retain the last valid cache on any failure."""
-        if not self.is_stale():
+    def refresh_if_stale(self, *, force: bool = False) -> bool:
+        """Refresh stale data, or force a check; retain valid data on failure."""
+        if not force and not self.is_stale():
             return False
         try:
             return self.refresh()
